@@ -101,7 +101,24 @@ a.btn { text-decoration: none; color: var(--fg); }
 .vmark .livedot { position: absolute; right: -3px; top: -3px; width: 11px; height: 11px; border-radius: 50%; background: #18b26b; border: 2px solid #fff; }
 .vmark.port .hull { width: 24px; height: 24px; margin: 3px; }
 .vmark.dim { opacity: .4; }
-.vmark .tag { position: absolute; left: 34px; top: 5px; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; font-size: 11.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.vmark .tag { position: absolute; left: 33px; top: 6px; white-space: nowrap; background: color-mix(in srgb, var(--panel) 55%, transparent); color: color-mix(in srgb, var(--fg) 78%, transparent); border-radius: 3px; padding: 0 5px; font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 4px; transition: opacity .15s; }
+.vmark:hover .tag, .vmark.sel .tag { background: var(--panel); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.lb { display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; font: 700 9.5px/1 var(--sans); }
+.lb.L { background: #1d2735; color: #fff; }
+.lb.B { background: transparent; color: #1d2735; box-shadow: inset 0 0 0 1.5px #1d2735; }
+:root[data-theme="dark"] .lb.L { background: #e4e9f0; color: #0f141b; } :root[data-theme="dark"] .lb.B { color: #e4e9f0; box-shadow: inset 0 0 0 1.5px #e4e9f0; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .lb.L { background: #e4e9f0; color: #0f141b; } :root:not([data-theme="light"]) .lb.B { color: #e4e9f0; box-shadow: inset 0 0 0 1.5px #e4e9f0; } }
+.shippop .leaflet-popup-content-wrapper { border-radius: 6px; background: var(--panel); color: var(--fg); }
+.shippop .leaflet-popup-tip { background: var(--panel); }
+.shippop .leaflet-popup-content { margin: 10px 12px; font: 12.5px/1.4 var(--sans); min-width: 230px; }
+.sp h4 { margin: 0 0 2px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.sp .sub { color: var(--fg-2); font-size: 12px; margin-bottom: 6px; }
+.sp .port { border-top: 1px solid var(--line-2); padding-top: 6px; margin-top: 6px; }
+.sp .port .pn { font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.sp .port .pn small { color: var(--fg-3); font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+.sp dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 4px 0 0; }
+.sp dt { color: var(--fg-2); } .sp dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; text-align: right; }
+.sp .tbc { color: var(--warn); font: 600 10px var(--sans); }
 .vmark.sel .hull { box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 6px var(--accent); }
 .fleetkey { position: absolute; left: 14px; top: 14px; z-index: 500; width: 250px; max-height: calc(100% - 110px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 12.5px; }
 .fleetkey .seg { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0 8px; }
@@ -494,6 +511,30 @@ function segments(v) {
 }
 V.forEach(v => { v.segs = segments(v); });
 
+/* Laden / ballast, worked out from the port calls: Load -> laden; last Discharge -> ballast; a port call or STS
+   ahead of a discharge counts as loading. */
+function cargoOps(v) {
+  if (v._ops) return v._ops;
+  const st = v.stops, res = new Array(st.length).fill(null), real = a => a === "Load" || a === "Discharge" || a === "STS";
+  for (let i = st.length - 1; i >= 0; i--) {
+    let nextReal = null; for (let j = i + 1; j < st.length; j++) if (real(st[j].act)) { nextReal = res[j]; break; }
+    const a = st[i].act;
+    res[i] = a === "Load" ? "L" : a === "Discharge" ? "D" : a === "STS" ? (nextReal === "D" ? "L" : "D") : a === "Port call" ? (nextReal === "D" ? "L" : null) : null;
+  }
+  return (v._ops = res);
+}
+function condition(v, t) {
+  if (!v.stops.length) return null;
+  const ops = cargoOps(v); let last = null, lastI = -1;
+  ops.forEach((o, i) => { const s = v.stops[i], tt = T(s.dep || s.arr); if (o && tt && tt.getTime() <= t) { last = o; lastI = i; } });
+  const next = ops.find((o, i) => i > lastI && o) || null;
+  if (last === "L") return "L";
+  if (last === "D") return next === "D" ? "L" : "B";
+  return next === "L" ? "B" : next === "D" ? "L" : null;
+}
+const condName = c => c === "L" ? "Laden" : c === "B" ? "Ballast" : "";
+const condBadge = c => c ? `<b class="lb ${c}" title="${condName(c)}">${c}</b>` : "";
+
 /* Position fixes: when a ship is out of AIS range, carry on from its latest known position (last AIS message or a
    position typed in under "Update position") along its route to the next ETA. */
 function nearestOnPath(path, p) {
@@ -787,7 +828,7 @@ function shipIcon(v, st, isSel) {
     : (st.pr && st.pr.state === "port" && st.src !== "live") ? `<svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3" fill="#fff"/></svg>`
     : arrowSvg("#fff", st.hdg);
   return L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15],
-    html: `<div class="${cls}" style="--c:${markColor(v, st)}"><div class="hull">${inner}</div>${st.src === "live" ? '<span class="livedot" title="Live AIS"></span>' : ""}${sel === null || isSel ? `<span class="tag">${esc(titleCase(v.name))}</span>` : ""}</div>` });
+    html: `<div class="${cls}" style="--c:${markColor(v, st)}"><div class="hull">${inner}</div>${st.src === "live" ? '<span class="livedot" title="Live AIS"></span>' : ""}${sel === null || isSel ? `<span class="tag">${esc(titleCase(v.name))}${condBadge(condition(v, tNow))}</span>` : ""}</div>` });
 }
 function titleCase(s) { return s.replace(/\w\S*/g, w => w.length <= 3 && /\d/.test(w) ? w : w[0].toUpperCase() + w.slice(1).toLowerCase()).replace(/^Ata /, "ATA "); }
 
@@ -830,12 +871,46 @@ function drawShips() {
     if (!st || (st.pr && st.pr.state === "region" && st.src !== "live")) return;
     const isSel = sel === v.id;
     const m = L.marker(st.ll, { icon: shipIcon(v, st, isSel), zIndexOffset: isSel ? 1000 : st.src === "live" ? 500 : 0, keyboard: true, title: v.name })
-      .addTo(layers.ships).on("click", () => select(v.id));
+      .addTo(layers.ships).on("click", () => { select(v.id); openShipPopup(v); });
+    if (shipPop && shipPop.v === v) shipPop.popup.setLatLng(st.ll).setContent(shipPopupHtml(v));
     if (st.src === "live" && st.pr && st.pr.state !== "region" && isSel) {   // ghost projected marker for comparison
       L.circleMarker(st.pr.ll, { radius: 6, color: "#e9a400", weight: 2, fillOpacity: 0, dashArray: "3 3" }).addTo(layers.ships)
         .bindTooltip("Projected from schedule", { className: "ptip" });
     }
   });
+}
+let shipPop = null;
+function openShipPopup(v) {
+  const st = vesselState(v, tNow); if (!st || !map) return;
+  if (shipPop) map.closePopup(shipPop.popup);
+  const popup = L.popup({ className: "shippop", offset: [0, -12], autoPan: true, maxWidth: 320 }).setLatLng(st.ll).setContent(shipPopupHtml(v)).openOn(map);
+  shipPop = { v, popup };
+  popup.on("remove", () => { if (shipPop && shipPop.popup === popup) shipPop = null; });
+}
+function shipPopupHtml(v) {
+  const t = tNow, st = vesselState(v, t), c = condition(v, t);
+  const calls = v.stops.filter(s => s.act !== "AIS fix" && s.act !== "Transit" && T(s.dep || s.arr) && T(s.dep || s.arr).getTime() > t);
+  const inPort = st && st.pr && st.pr.state === "port" && st.src !== "live" ? st.pr.seg && st.pr.seg.stop : null;
+  const fmt = d => d ? `${p2(d.getDate())} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())}` : "–";
+  const block = (s, label) => {
+    const arr = T(s.arr), dep = T(s.dep), etb = /ETB[^;]*?(\d{1,2})\s*(?:\/|\s)?\s*(\d{4}|AM|PM|LPM|EAM|Noon)/i.exec(s.note || "");
+    const arrived = arr && arr.getTime() <= t;
+    return `<div class="port"><div class="pn"><small>${label}</small></div>
+      <div class="pn">${esc(s.name)} <span class="bd" style="background:${actColor(s.act)};color:#fff;font:600 9.5px/14px var(--sans);padding:0 4px;border-radius:2px">${esc(s.act)}</span>${s.tbc ? '<span class="tbc">TBC</span>' : ""}</div>
+      <dl><dt>ETA</dt><dd>${arr ? fmt(arr) + (arrived ? " (arrived)" : "") : "Alongside"}</dd>
+      ${etb ? `<dt>ETB</dt><dd>${esc(etb[0].replace(/^ETB\s*-?\s*/i, ""))}</dd>` : ""}
+      <dt>ETS / ETD</dt><dd>${dep && s.dep !== s.arr ? fmt(dep) + (s.est_dep ? " (est.)" : "") : (calls[calls.length - 1] === s ? "Open " + esc(v.open_date || "") : "TBC")}</dd></dl></div>`;
+  };
+  let h = `<div class="sp"><h4>${esc(titleCase(v.name))} ${condBadge(c)}<span style="font-weight:400;color:var(--fg-2);font-size:12px">${c ? condName(c) : ""}</span></h4>
+    <div class="sub">${st ? esc(st.src === "live" ? "Live AIS" + (st.live.sog != null ? ` · ${st.live.sog.toFixed(1)} kn` : "") : st.pr.text) : ""}</div>`;
+  if (inPort && calls[0] === inPort) { h += block(calls[0], "In port now"); if (calls[1]) h += block(calls[1], "Next port"); }
+  else if (calls[0]) { h += block(calls[0], "Next port"); if (calls[1]) h += block(calls[1], "Then"); }
+  else h += `<div class="port">Open ${esc(v.open_pos || "")} ${esc(v.open_date || "")}</div>`;
+  if (st && st.pr && st.pr.state === "sea" && st.pr.seg && st.pr.seg.path && st.pr.frac != null && st.src !== "live") {
+    const togo = pathNm(st.pr.seg.path) * (1 - st.pr.frac);
+    h += `<div class="sub" style="margin:6px 0 0">${Math.round(togo).toLocaleString()} nm to go on this leg</div>`;
+  }
+  return h + `</div>`;
 }
 function fit() {
   if (!map) return;
@@ -1072,6 +1147,7 @@ function renderKey() {
     <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="var(--fg-2)"/><circle cx="12" cy="12" r="4" fill="#fff"/></svg>In port</span>
     <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="var(--fg-2)" stroke-width="3"/></svg>Inbound, position not reported</span>
     <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#18b26b" stroke="#fff" stroke-width="3"/></svg>Live AIS position</span>
+    <span title="Worked out from the port calls"><b class="lb L">L</b> Laden&nbsp;&nbsp;<b class="lb B">B</b> Ballast</span>
     <span><svg width="14" height="14" viewBox="0 0 24 24"><path d="M2 12h20" stroke="var(--fg-2)" stroke-width="2.5" stroke-dasharray="4 3"/></svg>Route, estimated departure</span></div>`;
   el.hidden = false;
   el.querySelectorAll("button.row").forEach(b => b.onclick = () => select(+b.dataset.v));
@@ -1223,7 +1299,7 @@ function renderCard() {
     <section><h4>Position report</h4><div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn" id="posBtn" type="button" style="padding:4px 10px;font-size:12px">Update position…</button>
       ${(LS.get("fixes", {}))[v.name.toUpperCase()] ? `<button class="btn" id="posClr" type="button" style="padding:4px 10px;font-size:12px">Clear typed position</button>` : ""}</div></section>
-    <section><h4>Availability</h4><dl class="kv"><dt>Open position</dt><dd>${esc(v.open_pos || "–")}</dd><dt>Open date</dt><dd>${esc(v.open_date || "–")}</dd><dt>Last 3 cargoes</dt><dd>${esc(v.cargoes || "–")}</dd></dl></section>
+    <section><h4>Availability</h4><dl class="kv"><dt>Condition</dt><dd>${condName(condition(v, tNow)) || "–"}</dd><dt>Open position</dt><dd>${esc(v.open_pos || "–")}</dd><dt>Open date</dt><dd>${esc(v.open_date || "–")}</dd><dt>Last 3 cargoes</dt><dd>${esc(v.cargoes || "–")}</dd></dl></section>
     ${c ? `<section><h4>Charter</h4><dl class="kv"><dt>Delivered</dt><dd>${esc(String(c.delivery || "–").split("/")[0])}</dd>
       <dt>Redelivery</dt><dd>${c.earliest ? fDd(T(c.earliest + "T00:00")) + " – " + fD(T(c.latest + "T00:00")) : "TBC"}</dd></dl></section>` : ""}`;
   el.hidden = false;
@@ -1522,8 +1598,9 @@ async function makeGif(W, H, stepH, onProgress) {
     const r = await Promise.all(jobs); return r.filter(Boolean).length > r.length * 0.8;
   };
   onProgress(0, "Loading the map…");
-  for (const url of ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-                     "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}"]) {
+  for (const url of ["https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+                     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+                     "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"]) {
     try { if (await loadTiles(url)) { bc.getImageData(0, 0, 1, 1); tilesOk = true; break; } } catch (e) { /* canvas tainted */ }
     bc.fillStyle = "#dfe7ef"; bc.fillRect(0, 0, W, H);
   }
@@ -1556,6 +1633,7 @@ async function makeGif(W, H, stepH, onProgress) {
   bc.font = F(Math.round(11.5 * fs));
   legendV.forEach((v, i) => { const cx = lx + 10 * fs + (i % 2) * lw, cy = ly + 13 * fs + Math.floor(i / 2) * lh;
     bc.fillStyle = v.color; bc.beginPath(); bc.arc(cx + 4 * fs, cy, 4.5 * fs, 0, 7); bc.fill(); bc.fillStyle = "#1d2735"; bc.fillText(titleCase(v.name), cx + 14 * fs, cy); });
+  bc.fillStyle = "#1d2735"; bc.font = F(Math.round(10.5 * fs)); bc.fillText("L = laden   B = ballast", lx + lw * 2 + 20 * fs, H - 16 * fs);
   bc.fillStyle = "#5a6779"; bc.font = F(Math.round(10 * fs)); bc.textAlign = "right";
   bc.fillText(tilesOk ? "Map tiles © Esri" : "", W - 8 * fs, H - 8 * fs); bc.textAlign = "left";
 
@@ -1581,17 +1659,28 @@ async function makeGif(W, H, stepH, onProgress) {
     }));
     // ships
     ctx.font = `600 ${F(Math.round(11.5 * fs))}`; ctx.textBaseline = "middle";
+    const placed = [];
     V.forEach(v => {
       const st = projected(v, t); if (!st || st.state === "region") return;
-      const [x, y] = toPx(st.ll); if (x < -20 || x > W + 20 || y < HEAD || y > H) return;
+      let [x, y] = toPx(st.ll); if (x < -20 || x > W + 20 || y < HEAD || y > H) return;
       const r = 8 * fs;
       ctx.fillStyle = st.state === "inbound" ? "#ffffff" : v.color; ctx.strokeStyle = st.state === "inbound" ? v.color : "#ffffff"; ctx.lineWidth = st.state === "inbound" ? 3 * fs : 2 * fs;
       ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
       if (st.state === "sea") { ctx.save(); ctx.translate(x, y); ctx.rotate(st.hdg * Math.PI / 180); ctx.fillStyle = "#fff";
         ctx.beginPath(); ctx.moveTo(0, -r * 0.62); ctx.lineTo(r * 0.45, r * 0.45); ctx.lineTo(0, r * 0.2); ctx.lineTo(-r * 0.45, r * 0.45); ctx.closePath(); ctx.fill(); ctx.restore(); }
       else if (st.state === "port") { ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, r * 0.35, 0, 7); ctx.fill(); }
-      const label = titleCase(v.name);
-      ctx.lineWidth = 3.5 * fs; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeText(label, x + r + 4 * fs, y); ctx.fillStyle = "#1d2735"; ctx.fillText(label, x + r + 4 * fs, y);
+      const label = titleCase(v.name), cnd = condition(v, t), lx0 = x + r + 4 * fs;
+      const lw0 = ctx.measureText(label).width + 20 * fs, lh0 = 15 * fs; let ly = y;
+      for (let tries = 0; tries < 6 && placed.some(q => lx0 < q[0] + q[2] && lx0 + lw0 > q[0] && ly - lh0 / 2 < q[1] + lh0 / 2 && ly + lh0 / 2 > q[1] - lh0 / 2); tries++) ly += lh0;
+      placed.push([lx0, ly, lw0]);
+      if (ly !== y) { ctx.strokeStyle = "rgba(29,39,53,.5)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + r * 0.7, y + r * 0.7); ctx.lineTo(lx0 - 2, ly); ctx.stroke(); }
+      y = ly;
+      ctx.lineWidth = 3.5 * fs; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeText(label, lx0, y); ctx.fillStyle = "#1d2735"; ctx.fillText(label, lx0, y);
+      if (cnd) { const bx = lx0 + ctx.measureText(label).width + 4 * fs, bs = 13 * fs;
+        ctx.fillStyle = cnd === "L" ? "#1d2735" : "#ffffff"; ctx.strokeStyle = "#1d2735"; ctx.lineWidth = 1.5 * fs;
+        ctx.beginPath(); ctx.rect(bx, y - bs / 2, bs, bs); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = cnd === "L" ? "#ffffff" : "#1d2735"; ctx.font = `700 ${F(Math.round(9.5 * fs))}`; ctx.textAlign = "center"; ctx.fillText(cnd, bx + bs / 2, y + 0.5);
+        ctx.textAlign = "left"; ctx.font = `600 ${F(Math.round(11.5 * fs))}`; }
     });
     // date stamp
     const d = new Date(t), stamp = `${p2(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()}`;
@@ -1683,7 +1772,7 @@ function refresh(refit) {
     : `${esc(titleCase(V[sel].name))} <span class="sub">(${esc(yr(V[sel]))}) • ${esc(V[sel].segment || "")} • Novum</span>`;
   document.querySelectorAll("#vtabs button").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.v === "" ? null : +b.dataset.v) === sel)));
 }
-function select(id) { sel = id; renderSide.vq = ""; refresh(true); if (id !== null && !document.getElementById("v-wx").hidden && wxSel !== id) { wxSel = id; renderWx(); } }
+function select(id) { if (id === null && shipPop && map) map.closePopup(shipPop.popup); sel = id; renderSide.vq = ""; refresh(true); if (id !== null && !document.getElementById("v-wx").hidden && wxSel !== id) { wxSel = id; renderWx(); } }
 function setView(name) {
   document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === name)));
   const live = document.getElementById("v-live");
