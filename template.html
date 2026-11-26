@@ -1,0 +1,1752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Novum Fleet Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<style>
+/* Layout: ops console. Top bar + tabs; map with floating vessel card and time scrubber; voyage panel on the right; vessel tabs along the bottom. */
+:root {
+  --bg: #eef1f5; --panel: #ffffff; --panel-2: #f6f8fb; --line: #dbe1ea; --line-2: #e9edf3;
+  --fg: #1d2735; --fg-2: #5a6779; --fg-3: #8b96a6;
+  --accent: #1d6fd8; --accent-soft: #e5effc;
+  --live: #1d6fd8; --proj: #e9a400;
+  --load: #16a37a; --disch: #e0504a; --sts: #8b5cd6; --port: #6b7a90; --open: #1d2735;
+  --warn: #c77700; --warn-soft: #fff4e0; --crit: #c62f2a; --crit-soft: #fde9e8; --ok: #16865f; --ok-soft: #e3f5ee;
+  --shadow: 0 1px 2px rgba(20,30,50,.08), 0 4px 16px rgba(20,30,50,.08);
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --panel: #171e28; --panel-2: #1c2531; --line: #2a3443; --line-2: #222b38;
+  --fg: #e4e9f0; --fg-2: #a3afbf; --fg-3: #6f7c8e; --accent: #5ea0f2; --accent-soft: #1d2e45;
+  --live: #5ea0f2; --proj: #f2b632; --load: #34c08f; --disch: #f06b65; --sts: #a785ea; --port: #8d9bb0; --open: #e4e9f0;
+  --warn: #f0a83a; --warn-soft: #3a2b12; --crit: #ff7b74; --crit-soft: #3d1c1b; --ok: #4fcf9b; --ok-soft: #133327;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --panel: #171e28; --panel-2: #1c2531; --line: #2a3443; --line-2: #222b38;
+  --fg: #e4e9f0; --fg-2: #a3afbf; --fg-3: #6f7c8e; --accent: #5ea0f2; --accent-soft: #1d2e45;
+  --live: #5ea0f2; --proj: #f2b632; --load: #34c08f; --disch: #f06b65; --sts: #a785ea; --port: #8d9bb0; --open: #e4e9f0;
+  --warn: #f0a83a; --warn-soft: #3a2b12; --crit: #ff7b74; --crit-soft: #3d1c1b; --ok: #4fcf9b; --ok-soft: #133327;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; padding: 8px max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px)); gap: 0; }
+.topbar { display: flex; align-items: center; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 16px; min-width: 0; }
+.topbar h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.topbar h1 .sub { color: var(--fg-2); font-weight: 400; }
+.topbar .back { border: 0; background: none; padding: 4px; display: grid; place-items: center; color: var(--fg); }
+.topbar .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 500; border: 1px solid var(--line); background: var(--panel-2); white-space: nowrap; }
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); }
+.pill.live .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.pill.err .dot { background: var(--crit); }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 6px 12px; font-weight: 500; display: inline-flex; gap: 6px; align-items: center; }
+.btn:hover { background: var(--panel-2); }
+a.btn { text-decoration: none; color: var(--fg); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.tabs { display: flex; gap: 2px; margin-top: 8px; overflow-x: auto; }
+.tabs button { flex: 0 0 auto; min-width: 150px; border: 1px solid var(--line); border-bottom: 0; background: var(--panel-2); color: var(--fg-2); padding: 9px 18px; font-size: 15px; font-weight: 500; border-radius: 4px 4px 0 0; }
+.tabs button[aria-selected="true"] { background: var(--panel); color: var(--fg); box-shadow: inset 0 3px 0 var(--accent); font-weight: 600; }
+
+.main { min-height: 0; display: grid; grid-template-columns: 1fr 470px; border: 1px solid var(--line); background: var(--panel); }
+.view { min-height: 0; min-width: 0; }
+#mapWrap { position: relative; min-height: 0; }
+#map { position: absolute; inset: 0; background: var(--panel-2); }
+.leaflet-container { font-family: var(--sans); }
+.map-fallback { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-2); text-align: center; padding: 24px; }
+
+/* floating vessel card */
+.vcard { position: absolute; left: 14px; bottom: 74px; width: 268px; max-height: calc(100% - 100px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); z-index: 500; padding: 12px 14px; }
+.vcard h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.vcard h3 span { color: var(--fg-2); font-weight: 400; font-size: 13px; }
+.vcard .owner { color: var(--accent); font-size: 13px; }
+.vcard section { border-top: 1px solid var(--line-2); margin-top: 10px; padding-top: 8px; }
+.vcard h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12px; }
+.kv dt { color: var(--fg-2); }
+.kv dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 11.5px; overflow-wrap: anywhere; }
+.src { font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; }
+.src.live { background: var(--accent-soft); color: var(--live); }
+.src.proj { background: var(--warn-soft); color: var(--warn); }
+.vcard .close { position: absolute; top: 8px; right: 8px; border: 0; background: none; color: var(--fg-3); font-size: 18px; line-height: 1; }
+
+/* scrubber */
+.scrub { position: absolute; left: 296px; right: 14px; bottom: 14px; z-index: 500; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.scrub .bar { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; box-shadow: var(--shadow); }
+.scrub input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.scrub .when { font-family: var(--mono); font-size: 12px; white-space: nowrap; min-width: 112px; }
+.scrub .iconbtn { border: 1px solid var(--line); background: var(--panel-2); border-radius: 4px; width: 30px; height: 28px; display: grid; place-items: center; padding: 0; }
+.legend { display: flex; gap: 12px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; box-shadow: var(--shadow); font-size: 12px; }
+.legend i { display: inline-block; vertical-align: -2px; margin-right: 4px; }
+.coord { background: #1f2a3a; color: #fff; border-radius: 6px; padding: 7px 12px; font-family: var(--mono); font-size: 12.5px; font-weight: 500; box-shadow: var(--shadow); }
+
+/* map markers */
+.vmark { position: relative; }
+.vmark .hull { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.vmark .hull { background: var(--c); }
+.vmark.inbound .hull { background: var(--panel); border: 3px solid var(--c); }
+.vmark .livedot { position: absolute; right: -3px; top: -3px; width: 11px; height: 11px; border-radius: 50%; background: #18b26b; border: 2px solid #fff; }
+.vmark.port .hull { width: 24px; height: 24px; margin: 3px; }
+.vmark.dim { opacity: .4; }
+.vmark .tag { position: absolute; left: 34px; top: 5px; white-space: nowrap; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; font-size: 11.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.vmark.sel .hull { box-shadow: 0 0 0 4px var(--accent-soft), 0 0 0 6px var(--accent); }
+.fleetkey { position: absolute; left: 14px; top: 14px; z-index: 500; width: 250px; max-height: calc(100% - 110px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 10px 12px; font-size: 12.5px; }
+.fleetkey .seg { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0 8px; }
+.fleetkey .seg button { flex: 1; border: 0; background: var(--panel-2); padding: 4px 6px; font-size: 12px; color: var(--fg-2); }
+.fleetkey .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+.fleetkey h4 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-2); }
+.fleetkey .row { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 4px 2px; border-radius: 3px; }
+.fleetkey .row:hover { background: var(--panel-2); }
+.fleetkey .row i { width: 12px; height: 12px; border-radius: 50%; background: var(--c); border: 2px solid var(--panel); box-shadow: 0 0 0 1px var(--c); }
+.fleetkey .row .s { color: var(--fg-2); font-size: 11.5px; white-space: nowrap; }
+.fleetkey .shapes { border-top: 1px solid var(--line-2); margin-top: 6px; padding-top: 6px; display: grid; gap: 3px; color: var(--fg-2); font-size: 11.5px; }
+.fleetkey .shapes span { display: flex; align-items: center; gap: 6px; }
+.wxbar { position: absolute; top: 12px; left: calc(50% + 140px); transform: translateX(-50%); z-index: 600; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.wxbar > * { pointer-events: auto; }
+.wxbar .seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); overflow: hidden; }
+.wxbar .seg span { padding: 6px 10px; font-size: 12px; font-weight: 600; color: var(--fg-2); border-right: 1px solid var(--line-2); display: flex; align-items: center; }
+.wxbar .seg button { white-space: nowrap; border: 0; background: none; padding: 6px 11px; font-size: 12.5px; color: var(--fg-2); }
+.wxbar .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+.wxinfo { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 5px 10px; font-size: 11.5px; color: var(--fg-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 440px; }
+.wxinfo .ramp { width: 140px; height: 8px; border-radius: 4px; }
+.wxa { pointer-events: none; text-align: center; font: 600 10px/1 var(--sans); color: #1d2735; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+.wxa svg { display: block; margin: 0 auto 1px; filter: drop-shadow(0 0 1px rgba(255,255,255,.9)); }
+@media (max-width: 820px) { .wxbar { position: static; transform: none; padding: 6px 0; } .wxbar .seg { flex-wrap: wrap; } }
+@media (max-width: 820px) { .fleetkey { position: static; width: auto; max-height: none; box-shadow: none; border-radius: 0; border-width: 0 0 1px; } }
+.pmark { font: 600 10.5px/1 var(--sans); color: #fff; padding: 3px 5px; border-radius: 3px; border: 1px solid #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); text-align: center; }
+.leaflet-tooltip.ptip { font-family: var(--sans); font-size: 12px; }
+
+/* right panel */
+.side { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.side header { padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.side header h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.side header h2 span { color: var(--fg-2); font-weight: 400; font-size: 16px; }
+.side header .meta { color: var(--fg-2); font-size: 13px; margin-top: 2px; }
+.side header .meta a, .side header .meta .lnk { color: var(--accent); text-decoration: none; }
+.search { margin: 10px 0 0; position: relative; }
+.search input { width: 100%; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 4px; padding: 7px 10px 7px 30px; font: inherit; font-size: 13px; }
+.search svg { position: absolute; left: 9px; top: 9px; color: var(--fg-3); }
+.side .scroll { overflow: auto; padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1; }
+
+.voy { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.voy.open { border-left: 3px solid var(--accent); }
+.voy > summary { list-style: none; cursor: pointer; padding: 10px 12px; display: grid; grid-template-columns: auto auto 1fr auto; gap: 4px 8px; align-items: baseline; }
+.voy > summary::-webkit-details-marker { display: none; }
+.voy .chev { color: var(--fg-2); transition: transform .15s; }
+.voy[open] .chev { transform: rotate(90deg); }
+.voy .vno { font-family: var(--mono); font-size: 11px; background: var(--accent-soft); color: var(--accent); padding: 1px 5px; border-radius: 3px; }
+.voy .vt { font-weight: 600; font-size: 15px; }
+.voy .vsub { grid-column: 3 / 5; color: var(--fg-2); font-size: 13px; }
+.calls { background: var(--panel-2); border-top: 1px solid var(--line-2); padding: 12px 12px 6px 14px; }
+.call { display: grid; grid-template-columns: 22px 1fr auto; gap: 0 10px; position: relative; padding-bottom: 14px; }
+.call::before { content: ""; position: absolute; left: 10px; top: 20px; bottom: 0; border-left: 2px solid var(--line); }
+.call.dash::before { border-left-style: dashed; border-left-color: var(--fg-3); }
+.call:last-child::before { display: none; }
+.badge { width: 20px; height: 18px; border-radius: 3px; display: grid; place-items: center; color: #fff; font: 600 10.5px/1 var(--sans); position: relative; z-index: 1; margin-top: 1px; }
+.b-L { background: var(--load); } .b-D { background: var(--disch); } .b-S { background: var(--sts); } .b-P, .b-T, .b-start { background: var(--port); } .b-A { background: var(--proj); color: #1d2735; } .b-O { background: var(--open); color: var(--panel); }
+.b-now { background: var(--proj); border-radius: 50%; width: 20px; height: 20px; }
+.b-now.live { background: var(--live); }
+.call .pn { color: var(--accent); font-weight: 500; }
+.call .tm { color: var(--fg); font-size: 13px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.call .nt { color: var(--fg-2); font-size: 12px; }
+.call .gap { color: var(--fg-2); font-size: 12.5px; font-family: var(--mono); text-align: right; white-space: nowrap; }
+.chip { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 0 5px; border-radius: 3px; margin-left: 4px; vertical-align: 1px; letter-spacing: .02em; }
+.chip.tbc { background: var(--warn-soft); color: var(--warn); }
+.chip.est { background: var(--line-2); color: var(--fg-2); }
+.nowchip { display: inline-block; background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 3px; }
+.nowchip.proj { background: var(--proj); color: #1d2735; }
+.remark { font-size: 12.5px; color: var(--fg-2); white-space: pre-wrap; padding: 10px 12px; border-top: 1px solid var(--line-2); }
+
+.fleetrow { display: grid; grid-template-columns: 6px 1fr auto; gap: 0 10px; border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px 9px 0; background: var(--panel); text-align: left; width: 100%; }
+.fleetrow:hover { background: var(--panel-2); }
+.fleetrow .stripe { border-radius: 4px 0 0 4px; margin: -9px 0; }
+.fleetrow .nm { font-weight: 600; font-size: 14.5px; }
+.fleetrow .nm span { color: var(--fg-2); font-weight: 400; font-size: 12.5px; }
+.fleetrow .nx { color: var(--fg-2); font-size: 12.5px; }
+.fleetrow .op { text-align: right; font-size: 12px; color: var(--fg-2); }
+.fleetrow .op b { display: block; color: var(--fg); font-weight: 600; font-size: 12.5px; }
+.st { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--line-2); color: var(--fg-2); white-space: nowrap; }
+.st.sea { background: var(--accent-soft); color: var(--accent); }
+.st.berth { background: var(--ok-soft); color: var(--ok); }
+.st.held { background: var(--crit-soft); color: var(--crit); }
+.st.deliv { background: var(--warn-soft); color: var(--warn); }
+.alert { display: grid; grid-template-columns: 4px 1fr; gap: 0 10px; border-radius: 4px; background: var(--panel-2); padding: 8px 10px 8px 0; font-size: 12.5px; }
+.alert .sv { border-radius: 4px 0 0 4px; margin: -8px 0; }
+.alert.crit .sv { background: var(--crit); } .alert.warn .sv { background: var(--warn); } .alert.info .sv { background: var(--fg-3); }
+.alert b { font-weight: 600; }
+.sect { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-3); margin: 6px 0 -2px; }
+
+/* bottom vessel tabs */
+.vtabs { display: flex; align-items: stretch; gap: 4px; padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px)); overflow-x: auto; }
+.vtabs button { flex: 0 0 auto; min-width: 140px; text-align: left; border: 1px solid var(--line); background: var(--panel); padding: 7px 12px; border-radius: 4px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.vtabs button .sw { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.vtabs button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); font-weight: 600; }
+
+/* gantt + tables */
+.pad { padding: 16px; overflow: auto; height: 100%; }
+.pad h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+.pad .lede { margin: 0 0 14px; color: var(--fg-2); max-width: 75ch; }
+.ganttbox { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.gantt text { font-family: var(--sans); fill: var(--fg-2); font-size: 11px; }
+.gantt .vn { fill: var(--fg); font-weight: 600; font-size: 12.5px; cursor: pointer; }
+.gantt .grid { stroke: var(--line-2); }
+.gantt .wk { stroke: var(--line); }
+.gantt .now { stroke: var(--accent); stroke-width: 2; }
+.gantt .lbl { font-size: 10.5px; fill: #fff; font-weight: 600; pointer-events: none; }
+.gantt .lbl.dark { fill: var(--fg); }
+table.t { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.t th { text-align: left; font-weight: 600; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-2); border-bottom: 1px solid var(--line); padding: 8px 10px; white-space: nowrap; position: sticky; top: 0; background: var(--panel); }
+table.t td { border-bottom: 1px solid var(--line-2); padding: 8px 10px; vertical-align: top; }
+table.t td.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.t tr:hover td { background: var(--panel-2); }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 4px; }
+.legend2 { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--fg-2); margin: 10px 0 0; }
+.legend2 span::before { content: ""; display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+
+/* weather */
+.wx { display: grid; grid-template-columns: 280px 1fr; height: 100%; min-height: 0; }
+.wxside { padding: 16px; border-right: 1px solid var(--line); overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.wxside h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.wxside .lede { margin: 0; color: var(--fg-2); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chips button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--fg-2); }
+.chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.wxships { display: grid; gap: 3px; }
+.wxships button { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; text-align: left; border: 1px solid transparent; background: none; border-radius: 4px; padding: 5px 8px; font-size: 13px; }
+.wxships button:hover { background: var(--panel-2); }
+.wxships button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.wxships i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.wxships .s { font-size: 11px; color: var(--fg-3); font-family: var(--mono); font-weight: 400; }
+.wxmain { display: grid; grid-template-rows: 1fr auto; min-height: 0; min-width: 0; }
+.wxmap { position: relative; min-height: 0; background: var(--panel-2); }
+#wxMapHost > #mapWrap { position: absolute; inset: 0; }
+#wxMapHost .vcard, #wxMapHost .fleetkey { display: none !important; }
+#wxMapHost .scrub { left: 14px; }
+#wxMapHost .wxbar { left: 50%; }
+.wxchart { border-top: 1px solid var(--line); padding: 10px 14px 8px; min-height: 120px; }
+.wxchart .hd { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; margin-bottom: 4px; }
+.wxchart h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.wxchart .sum { font-size: 12.5px; color: var(--fg-2); }
+.wxchart .sum b { color: var(--fg); font-weight: 600; }
+.wxchart .sum .bad { color: var(--crit); } .wxchart .sum .warn { color: var(--warn); }
+.wxchart svg { display: block; cursor: crosshair; }
+.wxchart svg text { font-family: var(--sans); font-size: 10.5px; fill: var(--fg-2); }
+.wxchart .cbox { overflow-x: auto; }
+.wxmap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 820px) { .wx { grid-template-columns: 1fr; height: auto; } .wxside { border-right: 0; border-bottom: 1px solid var(--line); } .wxmap { height: 70vh; } #wxMapHost > #mapWrap { display: block; } #wxMapHost #map { height: 100%; } }
+
+/* modal */
+dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); padding: 0; width: min(640px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(10,15,25,.45); }
+dialog .hd { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+dialog .hd h3 { margin: 0; font-size: 16px; }
+dialog .bd { padding: 14px 18px; max-height: 65vh; overflow: auto; }
+dialog .ft { padding: 12px 18px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+dialog label { display: block; font-size: 12px; font-weight: 600; color: var(--fg-2); margin-bottom: 4px; }
+dialog input { width: 100%; border: 1px solid var(--line); background: var(--panel-2); color: var(--fg); border-radius: 4px; padding: 7px 9px; font: 13px var(--mono); }
+dialog p { margin: 0 0 12px; color: var(--fg-2); font-size: 13px; }
+.idgrid { display: grid; grid-template-columns: 1fr 120px 120px; gap: 6px 8px; align-items: center; font-size: 13px; }
+.idgrid .h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
+
+@media (max-width: 1100px) { .main { grid-template-columns: 1fr 380px; } }
+@media (max-width: 820px) {
+  .app { height: auto; min-height: 100%; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .main { grid-template-columns: 1fr; }
+  #mapWrap { height: auto; display: flex; flex-direction: column; }
+  #map { position: relative; inset: auto; height: 60vh; min-height: 360px; }
+  .scrub { position: static; order: -1; padding: 8px 0; }
+  .side { border-left: 0; border-top: 1px solid var(--line); max-height: none; }
+  .vcard { position: static; width: auto; max-height: none; box-shadow: none; border-radius: 0; border-width: 1px 0 0; }
+  .legend, .coord { display: none; }
+  .topbar h1 { font-size: 17px; }
+  .tabs button { min-width: 0; padding: 8px 12px; font-size: 14px; }
+  .idgrid { grid-template-columns: 1fr 1fr; } .idgrid .nmcell { grid-column: 1 / -1; font-weight: 600; margin-top: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <button class="back" id="backBtn" title="Show whole fleet" aria-label="Show whole fleet">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7.3 2.2L12.5 20z"/></svg>
+    </button>
+    <h1 id="title">Novum fleet</h1>
+    <div class="meta">
+      <span class="pill" id="reportPill"></span>
+      <span class="pill" id="aisPill"><span class="dot"></span><span id="aisText">Live AIS off</span></span>
+      <button class="btn" id="gifBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z" fill="currentColor"/></svg>
+        Export GIF
+      </button>
+      <button class="btn" id="setupBtn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        Live AIS setup
+      </button>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-view="live">Live view</button>
+    <button role="tab" aria-selected="false" data-view="sched">Fleet schedule</button>
+    <button role="tab" aria-selected="false" data-view="part">Particulars</button>
+    <button role="tab" aria-selected="false" data-view="wx">Weather</button>
+  </div>
+
+  <div class="main" id="main">
+    <div class="view" id="v-live" style="display:contents">
+      <div id="mapWrap">
+        <div id="map"></div>
+        <div class="map-fallback" id="mapFallback" hidden>The map could not load. Check your internet connection, then reload this page.</div>
+        <div class="vcard" id="vcard" hidden></div>
+        <div class="fleetkey" id="fleetkey" hidden></div>
+        <div class="wxbar"><div class="seg" role="group" aria-label="Weather on map" id="wxBar"></div><div class="wxinfo" id="wxInfo" hidden></div></div>
+        <div class="scrub">
+          <div class="bar">
+            <button class="iconbtn" id="playBtn" title="Play schedule" aria-label="Play schedule">
+              <svg id="playIco" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2 1l9 5-9 5z"/></svg>
+            </button>
+            <input type="range" id="slider" min="0" max="1000" value="0" aria-label="Date on the schedule">
+            <span class="when" id="whenTxt"></span>
+            <button class="btn" id="nowBtn" type="button" style="padding:4px 10px">Now</button>
+          </div>
+          <div class="legend">
+            <span><i><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.5" fill="#18b26b" stroke="#fff" stroke-width="1.5"/></svg></i>Live AIS</span>
+            <span><i><svg width="12" height="12" viewBox="0 0 12 12"><path d="M11 1 1 5l4 1.5L6.5 11z" fill="var(--fg-2)"/></svg></i>Projected</span>
+          </div>
+          <div class="coord" id="coord">–</div>
+        </div>
+      </div>
+      <aside class="side">
+        <header id="sideHead"></header>
+        <div class="scroll" id="sideBody"></div>
+      </aside>
+    </div>
+    <div class="view" id="v-sched" hidden style="grid-column:1/-1">
+      <div class="pad">
+        <h2>Fleet schedule</h2>
+        <p class="lede">Port calls from the position list, with the time spent at sea between them. Hatched bars are times worked out from distance at an assumed speed. Click a vessel name to open it on the map.</p>
+        <div class="ganttbox" id="gantt"></div>
+        <div class="legend2">
+          <span style="--c:var(--load)">Load</span><span style="--c:var(--disch)">Discharge</span><span style="--c:var(--sts)">STS</span><span style="--c:var(--port)">Port call / transit</span><span style="--c:var(--proj)">Delivery or open window</span>
+        </div>
+      </div>
+    </div>
+    <div class="view" id="v-wx" hidden style="grid-column:1/-1">
+      <div class="wx">
+        <div class="wxside">
+          <h2>Weather</h2>
+          <p class="lede">See the weather each ship should meet along its voyage. Press Play or drag the date slider: the ships move on their schedule and the wind or wave arrows change with them.</p>
+          <div class="sect">View</div>
+          <div class="chips" id="wxViews"></div>
+          <div id="wxWindyOpts" hidden>
+            <div class="sect">Layer</div>
+            <div class="chips" id="wxLayers"></div>
+            <div class="sect">Model</div>
+            <div class="chips" id="wxModels"></div>
+          </div>
+          <div class="sect">Ship</div>
+          <div id="wxShips" class="wxships"></div>
+          <a class="btn" id="wxOpen" href="https://www.windy.com" target="_blank" rel="noopener" style="margin-top:10px;justify-content:center">Open in Windy.com ↗</a>
+        </div>
+        <div class="wxmain">
+          <div class="wxmap" id="wxMapHost"><iframe id="wxFrame" title="Windy weather map" loading="lazy" hidden></iframe></div>
+          <div class="wxchart" id="wxChart"></div>
+        </div>
+      </div>
+    </div>
+    <div class="view" id="v-part" hidden style="grid-column:1/-1">
+      <div class="pad" id="partBody"></div>
+    </div>
+  </div>
+
+  <nav class="vtabs" id="vtabs" aria-label="Vessels"></nav>
+</div>
+
+<dialog id="posDlg">
+  <div class="hd"><h3 id="posTitle">Update position</h3><button class="btn" id="posX" type="button" aria-label="Close">✕</button></div>
+  <div class="bd">
+    <p>Use this when a ship is out of AIS range. Enter its latest position from any source (noon report, satellite AIS, your vessel system). The ship then carries on from there along its route to the next ETA.</p>
+    <label for="posLL">Position</label>
+    <input id="posLL" placeholder="38.86N 11.83W  or  38.86, -11.83  or  38 51.6N 011 49.8W" autocomplete="off">
+    <div style="height:10px"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label for="posTime">Time of the position (your local time)</label><input id="posTime" type="datetime-local"></div>
+      <div><label for="posSog">Speed, kn (optional)</label><input id="posSog" inputmode="decimal" placeholder="11.6"></div>
+    </div>
+    <p id="posErr" style="color:var(--crit);margin:10px 0 0" hidden></p>
+  </div>
+  <div class="ft"><button class="btn primary" id="posSave" type="button">Save position</button></div>
+</dialog>
+
+<dialog id="gifDlg">
+  <div class="hd"><h3>Export animation as GIF</h3><button class="btn" id="gifX" type="button" aria-label="Close">✕</button></div>
+  <div class="bd">
+    <p>Makes an animated GIF of the whole fleet moving along its schedule, with routes, ship names and the date. You can paste it into an email or attach it.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label for="gifSize">Size</label><select id="gifSize" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);color:var(--fg)">
+        <option value="720x450">Email, 720 × 450 (smallest file)</option><option value="960x600" selected>Standard, 960 × 600</option><option value="1280x800">Large, 1280 × 800</option></select></div>
+      <div><label for="gifStep">Speed</label><select id="gifStep" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:4px;background:var(--panel-2);color:var(--fg)">
+        <option value="24">Fast: 1 frame per day</option><option value="12" selected>Normal: 1 frame per 12 hours</option><option value="6">Smooth: 1 frame per 6 hours</option></select></div>
+    </div>
+    <div id="gifProg" hidden style="margin-top:14px"><div style="height:8px;border-radius:4px;background:var(--line-2);overflow:hidden"><div id="gifBar" style="height:100%;width:0;background:var(--accent)"></div></div>
+      <p id="gifMsg" style="margin:6px 0 0"></p></div>
+    <div id="gifOut" hidden style="margin-top:12px"><img id="gifImg" alt="Fleet animation preview" style="width:100%;border:1px solid var(--line);border-radius:4px"></div>
+  </div>
+  <div class="ft">
+    <a class="btn" id="gifDl" hidden download="novum-fleet-schedule.gif">Download GIF</a>
+    <button class="btn primary" id="gifGo" type="button">Create GIF</button>
+  </div>
+</dialog>
+
+<dialog id="setup">
+  <div class="hd"><h3>Live AIS setup</h3><button class="btn" id="setupX" type="button" aria-label="Close">✕</button></div>
+  <div class="bd">
+    <p>Live positions come from <b>AISStream.io</b>, a free AIS feed. Create a free account at aisstream.io, copy your API key and paste it below. The free feed comes from coastal receivers, so ships far offshore may not report. Those ships stay on their projected position.</p>
+    <p>The key and numbers are saved only in this browser.</p>
+    <label for="apiKey">AISStream API key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="Paste your key">
+    <div style="height:14px"></div>
+    <div class="idgrid" id="idGrid"></div>
+  </div>
+  <div class="ft">
+    <button class="btn" id="aisStop" type="button">Disconnect</button>
+    <button class="btn primary" id="aisSave" type="button">Save and connect</button>
+  </div>
+</dialog>
+
+<script id="fleet-data" type="application/json">/*__DATA__*/null</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.0.22/leaflet-maplibre-gl.js"></script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("fleet-data").textContent);
+const V = DATA.vessels;
+const COLORS = ["#1d6fd8","#e0504a","#16a37a","#8b5cd6","#e9a400","#0e9aa7","#d9468f","#6a7d1f","#b5652a","#5468ff"];
+V.forEach((v, i) => { v.color = COLORS[i % COLORS.length]; v.id = i; });
+
+/* ------------------------------------------------------------ time helpers */
+const T = s => s ? new Date(s) : null;      // naive ISO -> local Date (times are shown as reported, LT)
+const HOUR = 3600e3, DAY = 24 * HOUR;
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const p2 = n => String(n).padStart(2, "0");
+const fD = d => d ? `${p2(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()}` : "–";
+const fDT = d => d ? `${p2(d.getDate())} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())}` : "–";
+const fDd = d => d ? `${p2(d.getDate())} ${MON[d.getMonth()]}` : "–";
+const days = ms => (ms / DAY).toFixed(1) + " d";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const REPORT = T(DATA.report_date + "T00:00");
+const RANGE0 = REPORT, RANGE1 = new Date(REPORT.getTime() + 38 * DAY);
+
+/* ------------------------------------------------------------ geometry */
+const R_NM = 3440.065, rad = x => x * Math.PI / 180;
+function nmDist(a, b) {
+  const [la1, lo1, la2, lo2] = [rad(a[0]), rad(a[1]), rad(b[0]), rad(b[1])];
+  const h = Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2;
+  return 2 * R_NM * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b) {
+  const [la1, la2, dl] = [rad(a[0]), rad(b[0]), rad(b[1] - a[1])];
+  const y = Math.sin(dl) * Math.cos(la2), x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const pathNm = p => { let d = 0; for (let i = 0; i < p.length - 1; i++) d += nmDist(p[i], p[i + 1]); return d; };
+function along(path, f) {   // point and heading at fraction f of the path length
+  const seg = []; let tot = 0;
+  for (let i = 0; i < path.length - 1; i++) { const d = nmDist(path[i], path[i + 1]); seg.push(d); tot += d; }
+  let target = Math.max(0, Math.min(1, f)) * tot;
+  for (let i = 0; i < seg.length; i++) {
+    if (target <= seg[i] || i === seg.length - 1) {
+      const k = seg[i] ? Math.min(1, target / seg[i]) : 0, a = path[i], b = path[i + 1];
+      return { ll: [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k], hdg: bearing(a, b) };
+    }
+    target -= seg[i];
+  }
+  return { ll: path[path.length - 1], hdg: 0 };
+}
+
+/* ------------------------------------------------------------ schedule model */
+function segments(v) {
+  const out = [];
+  if (v.origin) out.push({ kind: "sea", t0: T(v.origin.dep), t1: T(v.stops[0].arr), path: v.origin.path, from: v.origin.name, to: v.stops[0].name, est0: v.origin.est !== false, nm: v.origin.nm });
+  v.stops.forEach((s, i) => {
+    out.push({ kind: "port", stop: s, i, t0: T(s.arr), t1: T(s.dep) });
+    if (i < v.stops.length - 1) {
+      const n = v.stops[i + 1];
+      out.push({ kind: "sea", t0: T(s.dep), t1: T(n.arr), path: v.legs[i].path, from: s.name, to: n.name, nm: v.legs[i].nm, est0: s.est_dep, est1: n.est_arr });
+    }
+  });
+  return out;
+}
+V.forEach(v => { v.segs = segments(v); });
+
+/* Position fixes: when a ship is out of AIS range, carry on from its latest known position (last AIS message or a
+   position typed in under "Update position") along its route to the next ETA. */
+function nearestOnPath(path, p) {
+  let best = Infinity, k = 0;
+  const cx = Math.cos(rad(p[0]));
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1], ax = a[1] * cx, ay = a[0], dx = b[1] * cx - ax, dy = b[0] - ay, L2 = dx * dx + dy * dy;
+    const f = L2 ? Math.max(0, Math.min(1, ((p[1] * cx - ax) * dx + (p[0] - ay) * dy) / L2)) : 0;
+    const qx = ax + f * dx, qy = ay + f * dy, d = (p[1] * cx - qx) ** 2 + (p[0] - qy) ** 2;
+    if (d < best) { best = d; k = i; }
+  }
+  return k;
+}
+function alignLon(p, path) {   // pick lon, lon-360 or lon+360, whichever sits next to the route (Pacific routes are unwrapped)
+  let bestLon = p[1], best = Infinity;
+  for (const lo of [p[1], p[1] - 360, p[1] + 360]) for (const q of path) { const d = Math.abs(q[1] - lo); if (d < best) { best = d; bestLon = lo; } }
+  return [p[0], bestLon];
+}
+function segmentsWithFix(v, fix) {
+  const base = v.segs, ft = fix.t, when = new Date(ft);
+  const stop = { act: "AIS fix", port: "FIX", name: `${fix.src === "AIS" ? "Last AIS" : "Reported"} position ${fDT(when)}`, lat: fix.lat, lon: fix.lon };
+  for (let i = 0; i < base.length; i++) {
+    const g = base[i];
+    if (g.kind !== "sea" || !g.t0 || !g.t1 || ft < g.t0 || ft > g.t1) continue;
+    const p = alignLon([fix.lat, fix.lon], g.path), k = nearestOnPath(g.path, p); stop.lat = p[0]; stop.lon = p[1];
+    const A = { ...g, t1: when, path: [...g.path.slice(0, k + 1), p], to: stop.name };
+    const F = { kind: "port", stop, t0: when, t1: when };
+    const B = { ...g, t0: when, path: [p, ...g.path.slice(k + 1)], from: stop.name, est0: false };
+    return [...base.slice(0, i), A, F, B, ...base.slice(i + 1)];
+  }
+  const first = base[0];
+  if (first && first.t0 && ft < first.t0) {
+    if (first.kind === "port") {
+      const tgt = [first.stop.lat, first.stop.lon], p = alignLon([fix.lat, fix.lon], [tgt]); stop.lat = p[0]; stop.lon = p[1];
+      return [{ kind: "port", stop, t0: when, t1: when }, { kind: "sea", t0: when, t1: first.t0, path: [p, tgt], from: stop.name, to: first.stop.name, nm: Math.round(nmDist(p, tgt)), est0: false, direct: true }, ...base];
+    }
+    const p = alignLon([fix.lat, fix.lon], first.path), k = nearestOnPath(first.path, p); stop.lat = p[0]; stop.lon = p[1];
+    return [{ kind: "port", stop, t0: when, t1: when }, { ...first, t0: when, path: [p, ...first.path.slice(k + 1)], from: stop.name, est0: false }, ...base.slice(1)];
+  }
+  return null;   // fix falls in a port stay or after the schedule: nothing to adjust
+}
+function currentFix(v) {
+  const name = v.name.toUpperCase(), c = [];
+  const man = (LS.get("fixes", {}))[name]; if (man) c.push({ ...man, src: "Manual" });
+  const l = LIVE[name]; if (l && l.lat != null && l.time) c.push({ lat: l.lat, lon: l.lon, time: l.time, sog: l.sog, cog: l.cog, src: "AIS" });
+  return c.map(f => ({ ...f, t: new Date(f.time).getTime() }))
+    .filter(f => !isNaN(f.t) && Date.now() - f.t < 14 * DAY && f.t <= Date.now() + HOUR)
+    .sort((a, b) => b.t - a.t)[0] || null;
+}
+function updateFixes(only) {
+  (only ? [only] : V).forEach(v => { const f = currentFix(v); v.fix = f; v.segsEff = f ? segmentsWithFix(v, f) : null;
+    if (typeof voyWxCache !== "undefined") delete voyWxCache[v.id]; });
+}
+function parseLatLon(str) {
+  const s = String(str).trim().toUpperCase().replace(/[′’']/g, "'");
+  let m = s.match(/^(\d{1,2})[°\s]+(\d{1,2}(?:\.\d+)?)'?\s*([NS])[\s,;/]+(\d{1,3})[°\s]+(\d{1,2}(?:\.\d+)?)'?\s*([EW])$/);
+  if (m) { const la = (+m[1] + +m[2] / 60) * (m[3] === "S" ? -1 : 1), lo = (+m[4] + +m[5] / 60) * (m[6] === "W" ? -1 : 1); return Math.abs(la) <= 90 && Math.abs(lo) <= 180 ? [la, lo] : null; }
+  m = s.match(/^(-?\d+(?:\.\d+)?)\s*°?\s*([NS])?[\s,;/]+(-?\d+(?:\.\d+)?)\s*°?\s*([EW])?$/);
+  if (!m) return null;
+  let la = +m[1], lo = +m[3]; if (m[2] === "S") la = -Math.abs(la); if (m[4] === "W") lo = -Math.abs(lo);
+  return Math.abs(la) <= 90 && Math.abs(lo) <= 180 ? [la, lo] : null;
+}
+
+/* Where the schedule puts a vessel at time t. */
+function projected(v, t) {
+  if (!v.stops.length) return v.region ? { state: "region", ll: [v.region.lat, v.region.lon], hdg: null, text: v.region.label + " (area only)" } : null;
+  const segs = v.segsEff || v.segs, first = segs[0];
+  if (first.t0 && t < first.t0) {
+    if (first.stop && first.stop.act === "AIS fix") return { state: "sea", ll: [first.stop.lat, first.stop.lon], hdg: null, text: `At sea, ${first.stop.name}`, seg: first };
+    if (first.kind === "sea") return { state: "port", ll: first.path[0], hdg: null, text: "At " + first.from, seg: first };
+    const s = v.stops[0];
+    return { state: "inbound", ll: [s.lat, s.lon], hdg: null, text: `At sea, inbound ${s.name} (position not reported)`, seg: first };
+  }
+  for (const g of segs) {
+    const a = g.t0 ? g.t0.getTime() : -Infinity, b = g.t1 ? g.t1.getTime() : Infinity;
+    if (t >= a && t <= b) {
+      if (g.kind === "port" && g.stop.act === "AIS fix") { const nx = segs[segs.indexOf(g) + 1], hd = nx && nx.path ? along(nx.path, 0).hdg : null;
+        return { state: "sea", ll: [g.stop.lat, g.stop.lon], hdg: hd, text: `At sea, reported AIS position (${fDT(g.t0)})`, seg: g }; }
+      if (g.kind === "port") return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `${g.stop.act === "Transit" ? "Passing" : "At"} ${g.stop.name}`, seg: g };
+      const f = (t - a) / (b - a), p = along(g.path, f);
+      const fromFix = /position \d|^AIS position/.test(g.from);
+      return { state: "sea", ll: p.ll, hdg: p.hdg, text: fromFix ? `At sea, projected from ${g.from.replace(/^AIS position.*/, "AIS fix").replace(/^Last AIS/, "last AIS").replace(/^Reported/, "reported")} → ${g.to}` : `At sea, ${g.from} → ${g.to}`, seg: g, frac: f };
+    }
+  }
+  const last = v.stops[v.stops.length - 1];
+  return { state: "port", ll: [last.lat, last.lon], hdg: null, text: `Open at ${last.name}`, seg: segs[segs.length - 1] };
+}
+
+/* ------------------------------------------------------------ live AIS */
+const LS = { get(k, d) { try { const x = localStorage.getItem("novum." + k); return x == null ? d : JSON.parse(x); } catch { return d; } },
+             set(k, v) { try { localStorage.setItem("novum." + k, JSON.stringify(v)); } catch {} } };
+// MMSI numbers supplied by Novum (26 Nov 2026); IMO only known for Asopos. Numbers saved in Live AIS setup override these.
+const IDS_DEFAULT = {
+  "ASOPOS": { mmsi: "636012767", imo: "9309253" }, "VALLE BIANCA": { mmsi: "215070000", imo: "" }, "VALVERDE": { mmsi: "215035000", imo: "" },
+  "XANTHOS": { mmsi: "636012425", imo: "" }, "VICTORY": { mmsi: "636012629", imo: "" }, "HIGH CHALLENGE": { mmsi: "636017622", imo: "" },
+  "ATA VOYAGER": { mmsi: "352001867", imo: "" }, "MONARCA 1": { mmsi: "668116517", imo: "" } };
+const IDS = (() => { const saved = LS.get("ids", {}), out = {};
+  new Set([...Object.keys(IDS_DEFAULT), ...Object.keys(saved)]).forEach(k => { const d = IDS_DEFAULT[k] || {}, sv = saved[k] || {};
+    out[k] = { mmsi: sv.mmsi || d.mmsi || "", imo: sv.imo || d.imo || "" }; }); return out; })();
+let LIVE = LS.get("live", {});   // name -> {lat, lon, sog, cog, hdg, nav, time, dest, eta, draught}
+let ws = null, wsState = "off";
+const NAV = ["Under way using engine","At anchor","Not under command","Restricted manoeuvrability","Constrained by draught","Moored","Aground","Engaged in fishing","Under way sailing","","","","","","AIS-SART","Not defined"];
+
+const AIS_SEEN = {};   // vessel name -> time of the last AIS message this session
+function aisNote(v) {
+  const id = IDS[v.name.toUpperCase()] || {};
+  const fixTxt = v.fix && v.segsEff && !liveFor(v) ? `Projected from the ${v.fix.src === "AIS" ? "last AIS" : "reported"} position of ${fDT(new Date(v.fix.t))}. ` : "";
+  return fixTxt + aisNote0(v, id);
+}
+function aisNote0(v, id) {
+  if (!id.mmsi) return "Add this ship's MMSI under Live AIS setup to see its live position.";
+  if (!LS.get("apikey", "")) return `MMSI ${esc(id.mmsi)} is set. Connect Live AIS (top right) to see its live position.`;
+  if (wsState === "live" && !liveFor(v)) return `Live AIS is connected (MMSI ${esc(id.mmsi)}), but there is no signal from this ship yet. The free feed only hears ships near coastal receivers, so ships far offshore keep their projected position until they come within range.`;
+  if (wsState === "err") return "Live AIS is not connected. Check the status at the top right.";
+  return "";
+}
+function liveFor(v) {
+  const l = LIVE[v.name.toUpperCase()];
+  if (!l) return null;
+  if (Date.now() - new Date(l.time).getTime() > 6 * HOUR) return null;   // older AIS is used as a position fix instead
+  return l;
+}
+function setAis(state, text) {
+  wsState = state;
+  const pill = document.getElementById("aisPill");
+  pill.className = "pill" + (state === "live" ? " live" : state === "err" ? " err" : "");
+  document.getElementById("aisText").textContent = text;
+}
+function connectAis() {
+  const key = LS.get("apikey", "");
+  if (ws) { try { ws.close(); } catch {} ws = null; }
+  const mmsiToName = {}, imoToName = {};
+  V.forEach(v => { const id = IDS[v.name.toUpperCase()] || {};
+    if (id.mmsi) mmsiToName[String(id.mmsi).trim()] = v.name.toUpperCase();
+    if (id.imo) imoToName[String(id.imo).trim()] = v.name.toUpperCase(); });
+  const mmsis = Object.keys(mmsiToName);
+  if (!key) { setAis("off", "Live AIS off"); return; }
+  if (!mmsis.length) { setAis("err", "Add MMSI numbers"); return; }
+  setAis("wait", "Connecting…");
+  try { ws = new WebSocket("wss://stream.aisstream.io/v0/stream"); } catch (e) { setAis("err", "AIS connection failed"); return; }
+  let count = 0;
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ APIKey: key, BoundingBoxes: [[[-90, -180], [90, 180]]], FiltersShipMMSI: mmsis,
+      FilterMessageTypes: ["PositionReport", "StandardClassBPositionReport", "ShipStaticData"] }));
+    setAis("live", `Live AIS · waiting for ships`);
+  };
+  ws.onmessage = async ev => {
+    let m; try { m = JSON.parse(typeof ev.data === "string" ? ev.data : await ev.data.text()); } catch { return; }
+    if (m.error) { setAis("err", "AIS: " + m.error); return; }
+    const md = m.MetaData || {}, name = mmsiToName[String(md.MMSI)];
+    if (!name) return;
+    AIS_SEEN[name] = Date.now();
+    const cur = LIVE[name] || {};
+    const pr = m.Message && (m.Message.PositionReport || m.Message.StandardClassBPositionReport);
+    if (pr) {
+      Object.assign(cur, { lat: pr.Latitude ?? md.latitude, lon: pr.Longitude ?? md.longitude, sog: pr.Sog, cog: pr.Cog,
+        hdg: pr.TrueHeading === 511 ? null : pr.TrueHeading, nav: NAV[pr.NavigationalStatus] || "",
+        time: (md.time_utc ? new Date(md.time_utc.replace(" +0000 UTC", "Z").replace(" ", "T").replace(/\.\d+/, "")) : new Date()).toISOString() });
+      count++;
+    }
+    const sd = m.Message && m.Message.ShipStaticData;
+    if (sd) {
+      cur.dest = (sd.Destination || "").trim(); cur.draught = sd.MaximumStaticDraught;
+      if (sd.Eta && sd.Eta.Month) cur.eta = `${p2(sd.Eta.Day)} ${MON[sd.Eta.Month - 1] || "?"} ${p2(sd.Eta.Hour)}:${p2(sd.Eta.Minute)} UTC`;
+      if (sd.ImoNumber) cur.imo = sd.ImoNumber;
+      if (!cur.time) cur.time = new Date().toISOString();
+    }
+    if (cur.lat == null) return;
+    LIVE[name] = cur; LS.set("live", LIVE);
+    updateFixes(V.find(x => x.name.toUpperCase() === name));
+    const n = V.filter(v => liveFor(v)).length;
+    setAis("live", `Live AIS · ${n} of ${V.length} ships`);
+    refresh();
+  };
+  ws.onerror = () => setAis("err", "AIS connection error");
+  ws.onclose = e => { if (wsState !== "off") setAis("err", e.code === 1000 ? "AIS disconnected" : "AIS closed – check key"); };
+}
+
+/* ------------------------------------------------------------ state */
+let sel = null;          // selected vessel id, null = fleet
+let tNow = Math.min(Math.max(Date.now(), RANGE0.getTime()), RANGE1.getTime());
+let map = null, layers = {};
+
+function vesselState(v, t) {
+  const pr = projected(v, t);
+  const isNow = Math.abs(t - Date.now()) < 6 * HOUR;
+  const live = isNow ? liveFor(v) : null;
+  if (live) return { live, pr, ll: [live.lat, live.lon], hdg: live.hdg ?? live.cog, src: "live" };
+  if (!pr) return null;
+  return { pr, ll: pr.ll, hdg: pr.hdg, src: pr.state === "inbound" ? "inbound" : "proj" };
+}
+function nextEvent(v, t) {
+  for (const s of v.stops) {
+    if (s.act === "AIS fix") continue;
+    if (s.arr && T(s.arr) > t) return `ETA ${s.name.split(",")[0]} ${fDT(T(s.arr))}`;
+    if (s.dep && T(s.dep) > t && s !== v.stops[v.stops.length - 1]) return `ETS ${s.name.split(",")[0]} ${fDT(T(s.dep))}`;
+  }
+  if (v.window) return `${v.window.label} ${fDd(T(v.window.start))}–${fDd(T(v.window.end))}`;
+  return v.open_pos ? `Open ${v.open_pos}` : "";
+}
+const stClass = s => /sea|transit/i.test(s) ? "sea" : /berth/i.test(s) ? "berth" : /held/i.test(s) ? "held" : /deliver/i.test(s) ? "deliv" : "";
+const kdwt = v => v.dwt ? `${Math.round(v.dwt)}k` : "";
+const yr = v => [v.year, kdwt(v)].filter(Boolean).join(", ");
+const actCode = a => ({ Load: "L", Discharge: "D", STS: "S", Transit: "T", "AIS fix": "A" }[a] || "P");
+const actColor = a => ({ L: "var(--load)", D: "var(--disch)", S: "var(--sts)" }[actCode(a)] || "var(--port)");
+
+/* ------------------------------------------------------------ alerts */
+function alerts() {
+  const out = [], today = REPORT;
+  V.forEach(v => {
+    const c = v.charter;
+    if (c && c.earliest) {
+      const e = (T(c.earliest + "T00:00") - today) / DAY, l = c.latest ? (T(c.latest + "T00:00") - today) / DAY : null;
+      if (e <= 0 && l != null && l >= 0) out.push({ sev: "crit", v, text: `<b>${esc(titleCase(v.name))}</b> is inside its redelivery window (${fDd(T(c.earliest + "T00:00"))} – ${fD(T(c.latest + "T00:00"))}). Latest redelivery in ${Math.round(l)} days.` });
+      else if (e > 0 && e <= 90) out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> earliest redelivery ${fD(T(c.earliest + "T00:00"))}, in ${Math.round(e)} days.` });
+    }
+    if (/held/i.test(v.status)) out.push({ sev: "crit", v, text: `<b>${esc(titleCase(v.name))}</b>: ${esc(v.remarks)}` });
+  });
+  (DATA.notes || []).forEach(n => out.push({ sev: "info", v: V.find(x => x.name === n.vessel), text: esc(n.text) }));
+  const order = { crit: 0, warn: 1, info: 2 };
+  return out.sort((a, b) => order[a.sev] - order[b.sev]);
+}
+
+/* ------------------------------------------------------------ map */
+function initMap() {
+  if (!window.L) { document.getElementById("mapFallback").hidden = false; return; }
+  map = L.map("map", { zoomControl: true, worldCopyJump: false, minZoom: 2 }).setView([18, -55], 3);
+  const OFM_ATTR = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>';
+  const ESRI_ATTR = 'Tiles &copy; <a href="https://www.esri.com" target="_blank">Esri</a> &mdash; Esri, GEBCO, NOAA, Garmin, HERE and others';
+  const vec = style => (L.maplibreGL && window.maplibregl) ? L.maplibreGL({ style: "https://tiles.openfreemap.org/styles/" + style, attribution: OFM_ATTR }) : null;
+  const esriGray = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 16, attribution: ESRI_ATTR });
+  const esriOcean = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 13, attribution: ESRI_ATTR });
+  const esriDark = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", { maxZoom: 16, attribution: ESRI_ATTR });
+  const seamarks = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", { maxZoom: 18, attribution: 'Seamarks &copy; <a href="https://www.openseamap.org">OpenSeaMap</a>' });
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
+  const bases = {};
+  let vLight = null, vDark = null, vColor = null;
+  try { vLight = vec("positron"); vDark = vec("dark"); vColor = vec("liberty"); } catch (e) { vLight = vDark = vColor = null; }
+  if (vLight) { bases["Light"] = vLight; bases["Dark"] = vDark; bases["Colour"] = vColor; }
+  bases["Ocean (Esri)"] = esriOcean; bases["Light grey (Esri)"] = esriGray; bases["Dark grey (Esri)"] = esriDark;
+  const ctl = L.control.layers(bases, { "Sea marks (OpenSeaMap)": seamarks }, { position: "topright" }).addTo(map);
+  const fallback = () => { const pick = esriOcean;
+    Object.values(bases).forEach(l => { if (l !== pick && map.hasLayer(l)) map.removeLayer(l); });
+    if (!map.hasLayer(pick)) pick.addTo(map); };
+  const savedBase = LS.get("base", "");
+  map.on("baselayerchange", e => LS.set("base", e.name));
+  // default: Colour (OpenFreeMap "liberty"); a base map the viewer picked last time wins
+  const esriSaved = bases[savedBase] && savedBase.includes("Esri") ? bases[savedBase] : null;
+  const first = esriSaved ? null : (bases[savedBase] || vColor || null);
+  if (esriSaved) esriSaved.addTo(map);
+  else if (first) {
+    try {
+      first.addTo(map);
+      // If the vector map has not drawn after 8 s (blocked, no WebGL), switch to Esri tiles.
+      setTimeout(() => { try { const gl = first.getMaplibreMap && first.getMaplibreMap(); if (!gl || !gl.isStyleLoaded()) fallback(); } catch (e) { fallback(); } }, 8000);
+      const gl = first.getMaplibreMap && first.getMaplibreMap();
+      if (gl) gl.on("error", ev => { if (ev && ev.error && /style/i.test(String(ev.error.message || ""))) fallback(); });
+    } catch (e) { fallback(); }
+  } else fallback();
+  L.control.scale({ imperial: false, position: "bottomright" }).addTo(map);
+  layers.routes = L.layerGroup().addTo(map);
+  layers.ports = L.layerGroup().addTo(map);
+  layers.wx = L.layerGroup().addTo(map);
+  layers.ships = L.layerGroup().addTo(map);
+  let wxTimer = null;
+  flowInit();
+  map.on("movestart zoomstart", flowHide);
+  map.on("moveend", () => { flowShow(); clearTimeout(wxTimer); wxTimer = setTimeout(loadWxGrid, 400); });
+  map.on("mousemove", e => { const v = flowValueAt(e.latlng);
+    document.getElementById("coord").textContent = `${e.latlng.lat.toFixed(2)}°, ${(((e.latlng.lng + 540) % 360) - 180).toFixed(2)}°${v}`; });
+  map.on("click", () => { if (sel !== null) {} });
+}
+function arrowSvg(color, hdg) {
+  return `<svg width="16" height="16" viewBox="0 0 24 24" style="transform:rotate(${(hdg ?? 45) - 45}deg)"><path d="M21 3 3 10.5l7.3 2.2L12.5 20z" fill="#fff"/></svg>`;
+}
+const STATUS_COLORS = { sea: ["#1d6fd8", "Under way"], port: ["#16a37a", "In port / at berth"], inbound: ["#8b96a6", "Position not reported"], held: ["#e0504a", "Held / delayed"], deliv: ["#e9a400", "Delivering / not on hire"] };
+let colorBy = LS.get("colorBy", "vessel");
+function statusKey(v, st) {
+  if (/held/i.test(v.status)) return "held";
+  if (/deliver/i.test(v.status)) return "deliv";
+  if (!st) return "inbound";
+  if (st.src === "live") return /moored|anchor/i.test(st.live.nav || "") || (st.live.sog != null && st.live.sog < 1) ? "port" : "sea";
+  if (st.src === "inbound") return "inbound";
+  return st.pr.state === "port" ? "port" : "sea";
+}
+const markColor = (v, st) => colorBy === "status" ? STATUS_COLORS[statusKey(v, st)][0] : v.color;
+function shipIcon(v, st, isSel) {
+  const cls = ["vmark", st.src === "live" ? "live" : st.src === "inbound" ? "inbound" : "proj",
+    st.pr && st.pr.state === "port" && st.src !== "live" ? "port" : "", isSel ? "sel" : "", sel !== null && !isSel ? "dim" : ""].join(" ");
+  const inner = st.src === "inbound" ? `<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="${markColor(v, st)}"/></svg>`
+    : (st.pr && st.pr.state === "port" && st.src !== "live") ? `<svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3" fill="#fff"/></svg>`
+    : arrowSvg("#fff", st.hdg);
+  return L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15],
+    html: `<div class="${cls}" style="--c:${markColor(v, st)}"><div class="hull">${inner}</div>${st.src === "live" ? '<span class="livedot" title="Live AIS"></span>' : ""}${sel === null || isSel ? `<span class="tag">${esc(titleCase(v.name))}</span>` : ""}</div>` });
+}
+function titleCase(s) { return s.replace(/\w\S*/g, w => w.length <= 3 && /\d/.test(w) ? w : w[0].toUpperCase() + w.slice(1).toLowerCase()).replace(/^Ata /, "ATA "); }
+
+function drawRoutes() {
+  if (!map) return;
+  layers.routes.clearLayers(); layers.ports.clearLayers();
+  const list = sel === null ? V : [V[sel]];
+  list.forEach(v => {
+    const op = sel === null ? 0.55 : 0.95;
+    const segsE = v.segsEff || v.segs;
+    segsE.filter(g => g.kind === "port" && g.stop.act === "AIS fix").forEach(g => {
+      L.circleMarker([g.stop.lat, g.stop.lon], { radius: 4, color: "#fff", weight: 1.5, fillColor: "#e9a400", fillOpacity: 1 }).addTo(layers.routes)
+        .bindTooltip(`<b>${esc(titleCase(v.name))}</b><br>${esc(g.stop.name)}`, { className: "ptip" }); });
+    segsE.filter(g => g.kind === "sea").forEach(g => {
+      const past = g.t1 && g.t1.getTime() < tNow;
+      L.polyline(g.path, { color: v.color, weight: sel === null ? 2 : 3, opacity: past ? op * 0.5 : op, dashArray: g.est0 ? "6 6" : null }).addTo(layers.routes)
+        .on("click", () => select(v.id));
+    });
+    if (v.region) L.circle([v.region.lat, v.region.lon], { radius: v.region.km * 1000, color: v.color, weight: 1, dashArray: "4 4", fillOpacity: 0.06 }).addTo(layers.routes)
+      .bindTooltip(`${esc(titleCase(v.name))}: ${esc(v.region.label)} (area only, no position reported)`, { className: "ptip" });
+    const seen = new Set();
+    (v.origin ? [{ port: v.origin.port, name: v.origin.name, lat: v.origin.path[0][0], lon: v.origin.path[0][1], act: "Departed" }] : []).concat(v.stops).forEach(s => {
+      if (s.act === "AIS fix") return;
+      const k = s.port + s.act; if (seen.has(k)) return; seen.add(k);
+      const code = s.act === "Departed" ? "S" : actCode(s.act);
+      const bg = s.act === "Departed" ? "#8b96a6" : actColor(s.act);
+      const showLabel = sel !== null;
+      L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "", iconSize: showLabel ? [20, 16] : [10, 10], iconAnchor: showLabel ? [10, 22] : [5, 5],
+        html: showLabel ? `<div class="pmark" style="background:${bg}">${code}</div>` : `<div style="width:10px;height:10px;border-radius:50%;background:${bg};border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.4)"></div>` }) })
+        .addTo(layers.ports).bindTooltip(`<b>${esc(s.name)}</b><br>${esc(s.act)}${s.arr ? " · ETA " + fDT(T(s.arr)) : ""}${s.dep ? " · ETS " + fDT(T(s.dep)) : ""}`, { className: "ptip", direction: "top" });
+      if (showLabel) L.circleMarker([s.lat, s.lon], { radius: 3, color: "#fff", weight: 1, fillColor: "#5a6779", fillOpacity: 1 }).addTo(layers.ports);
+    });
+  });
+}
+function drawShips() {
+  if (!map) return;
+  layers.ships.clearLayers();
+  V.forEach(v => {
+    const st = vesselState(v, tNow);
+    if (!st || (st.pr && st.pr.state === "region" && st.src !== "live")) return;
+    const isSel = sel === v.id;
+    const m = L.marker(st.ll, { icon: shipIcon(v, st, isSel), zIndexOffset: isSel ? 1000 : st.src === "live" ? 500 : 0, keyboard: true, title: v.name })
+      .addTo(layers.ships).on("click", () => select(v.id));
+    if (st.src === "live" && st.pr && st.pr.state !== "region" && isSel) {   // ghost projected marker for comparison
+      L.circleMarker(st.pr.ll, { radius: 6, color: "#e9a400", weight: 2, fillOpacity: 0, dashArray: "3 3" }).addTo(layers.ships)
+        .bindTooltip("Projected from schedule", { className: "ptip" });
+    }
+  });
+}
+function fit() {
+  if (!map) return;
+  let pts = [];
+  const list = sel === null ? V : [V[sel]];
+  list.forEach(v => { v.segs.forEach(g => { if (g.path) pts = pts.concat(g.path); else if (g.stop) pts.push([g.stop.lat, g.stop.lon]); });
+    if (v.region && sel !== null) pts.push([v.region.lat, v.region.lon]);
+    const st = vesselState(v, tNow); if (st) pts.push(st.ll); });
+  if (sel === null) pts = pts.filter(p => p[1] > -130).concat(V.map(v => vesselState(v, tNow)).filter(Boolean).map(st => st.ll));   // fleet view: Atlantic routes plus every ship
+  if (pts.length) map.fitBounds(L.latLngBounds(pts), { paddingTopLeft: [290, 30], paddingBottomRight: [30, 80], maxZoom: 7 });
+}
+
+/* ------------------------------------------------------------ weather on the live map (free, no key) */
+// Wind and waves: Open-Meteo forecast and marine APIs, drawn as arrows on a grid; they follow the date slider.
+// Rain: RainViewer latest radar. Sea temperature: NASA GIBS (GHRSST MUR), most recent day available.
+const WXM = [["off", "Off"], ["wind", "Wind"], ["waves", "Waves"], ["rain", "Rain radar"], ["sst", "Sea temp"]];
+let wxMode = LS.get("wxOverlay", "off"), wxGrid = null, wxTile = null, wxReq = 0;
+const lon180 = x => ((x + 540) % 360) - 180;
+const BEAU = [[0, "#9bb7d4"], [7, "#4fb3d9"], [11, "#3fbf8f"], [17, "#a5cf3c"], [22, "#f2c230"], [28, "#f28c28"], [34, "#e0504a"], [41, "#b8336a"], [48, "#7a2a8c"]];
+const WAVE = [[0, "#9bd4e8"], [1, "#4fb3d9"], [2, "#3fbf8f"], [3, "#f2c230"], [4, "#f28c28"], [6, "#e0504a"], [9, "#7a2a8c"]];
+const scaleColor = (sc, v) => { let c = sc[0][1]; for (const [k, col] of sc) if (v >= k) c = col; return c; };
+const ramp = sc => `linear-gradient(90deg, ${sc.map(([k, c], i) => `${c} ${Math.round(i / (sc.length - 1) * 100)}%`).join(", ")})`;
+
+function renderWxBar() {
+  const bar = document.getElementById("wxBar");
+  bar.innerHTML = `<span>Weather</span>` + WXM.map(([k, l]) => `<button data-w="${k}" aria-pressed="${k === wxMode}">${l}</button>`).join("");
+  bar.querySelectorAll("button").forEach(b => b.onclick = () => { wxMode = b.dataset.w; LS.set("wxOverlay", wxMode); wxGrid = null; applyWxMode(); renderWxBar(); });
+}
+function wxInfo(html) { const el = document.getElementById("wxInfo"); el.hidden = !html; el.innerHTML = html || ""; }
+async function applyWxMode() {
+  if (!map) return;
+  if (wxTile) { map.removeLayer(wxTile); wxTile = null; }
+  layers.wx.clearLayers(); wxInfo(""); flowClear();
+  if (wxMode === "wind" || wxMode === "waves") return loadWxGrid(true);
+  if (wxMode === "sst") {
+    const d = new Date(Date.now() - 2 * DAY), ds = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+    wxTile = L.tileLayer(`https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/GHRSST_L4_MUR_Sea_Surface_Temperature/default/${ds}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`,
+      { maxNativeZoom: 7, maxZoom: 19, opacity: 0.7, attribution: 'Sea temperature: <a href="https://earthdata.nasa.gov/gibs" target="_blank">NASA GIBS</a> / GHRSST MUR' }).addTo(map);
+    wxInfo(`Sea surface temperature, ${fD(d)} (satellite analysis) <span class="ramp" style="background:linear-gradient(90deg,#2c1b6e,#2a63c8,#2fb5c9,#8fd16a,#f4d03f,#f08a2c,#c62f2a)"></span> cold → warm`);
+    return;
+  }
+  if (wxMode === "rain") {
+    try {
+      const r = await fetch("https://api.rainviewer.com/public/weather-maps.json"), j = await r.json();
+      const fr = j.radar && j.radar.past && j.radar.past[j.radar.past.length - 1];
+      if (!fr || wxMode !== "rain") throw new Error("no frame");
+      wxTile = L.tileLayer(`${j.host}${fr.path}/256/{z}/{x}/{y}/2/1_1.png`, { maxNativeZoom: 7, maxZoom: 19, opacity: 0.75,
+        attribution: 'Radar <a href="https://www.rainviewer.com" target="_blank">RainViewer</a>' }).addTo(map);
+      wxInfo(`Latest rain radar, ${fDT(new Date(fr.time * 1000))} your time. Radar covers land and coasts only.`);
+    } catch (e) { wxInfo("Rain radar could not load. Check your connection or try again later."); }
+  }
+}
+/* Windy-style flow layer: colour heat map plus animated particles, from an Open-Meteo forecast grid.
+   The grid covers the view (with a margin) and holds every forecast hour, so the slider only re-samples it. */
+const WIND_PAL = [[0, [98, 113, 183]], [2, [57, 97, 159]], [6, [74, 148, 169]], [10, [77, 141, 123]], [14, [83, 165, 83]], [17, [53, 159, 53]],
+  [21, [167, 157, 81]], [25, [159, 127, 58]], [29, [161, 108, 92]], [33, [129, 58, 78]], [37, [175, 80, 136]], [41, [117, 74, 147]],
+  [47, [109, 97, 163]], [56, [68, 105, 141]], [70, [92, 144, 152]], [90, [125, 68, 165]]];
+const WAVE_PAL = [[0, [59, 91, 169]], [0.5, [46, 134, 181]], [1, [47, 163, 156]], [1.5, [72, 176, 106]], [2, [156, 189, 60]], [2.5, [216, 180, 44]],
+  [3, [217, 130, 42]], [4, [201, 71, 47]], [5, [161, 42, 94]], [7, [107, 42, 140]], [9, [226, 214, 230]]];
+function palColor(pal, v) {
+  if (v <= pal[0][0]) return pal[0][1];
+  for (let i = 1; i < pal.length; i++) if (v < pal[i][0]) { const [a, ca] = pal[i - 1], [b, cb] = pal[i], f = (v - a) / (b - a);
+    return [0, 1, 2].map(k => Math.round(ca[k] + (cb[k] - ca[k]) * f)); }
+  return pal[pal.length - 1][1];
+}
+const palRamp = (pal, top) => `linear-gradient(90deg, ${pal.filter(p => p[0] <= top).map(([k, c]) => `rgb(${c}) ${Math.round(k / top * 100)}%`).join(", ")})`;
+
+const FLOW = { pane: null, heat: null, part: null, field: null, parts: [], raf: 0, visible: true, cell: 8 };
+function flowInit() {
+  FLOW.pane = map.createPane("wxflow"); FLOW.pane.style.zIndex = 350; FLOW.pane.style.pointerEvents = "none";
+  FLOW.heat = document.createElement("canvas"); FLOW.part = document.createElement("canvas");
+  [FLOW.heat, FLOW.part].forEach(c => { c.style.position = "absolute"; c.style.left = "0"; c.style.top = "0"; FLOW.pane.appendChild(c); });
+  FLOW.heat.style.opacity = "0.62";
+}
+function flowHide() { FLOW.visible = false; if (FLOW.heat) { FLOW.heat.style.display = "none"; FLOW.part.style.display = "none"; } }
+function flowShow() { FLOW.visible = true; if (FLOW.heat) { FLOW.heat.style.display = ""; FLOW.part.style.display = ""; } flowBuild(); }
+function flowClear() {
+  FLOW.field = null; cancelAnimationFrame(FLOW.raf); FLOW.raf = 0;
+  if (FLOW.heat) { FLOW.heat.getContext("2d").clearRect(0, 0, FLOW.heat.width, FLOW.heat.height); FLOW.part.getContext("2d").clearRect(0, 0, FLOW.part.width, FLOW.part.height); }
+}
+function gridSample(t) {   // values at every grid point for time t: {mag, u, v} (u,v = direction of travel, unit vector)
+  const G = wxGrid; if (!G) return null;
+  const tm = G.res[0] && G.res[0].hourly && G.res[0].hourly.time; if (!tm) return null;
+  const ts = t / 1000; if (ts < tm[0] - 1800 || ts > tm[tm.length - 1] + 1800) return null;
+  let i = 0; while (i < tm.length - 2 && tm[i + 1] <= ts) i++;
+  const f = Math.max(0, Math.min(1, (ts - tm[i]) / (tm[i + 1] - tm[i])));
+  const isWind = G.mode === "wind";
+  return G.res.map(r => { const h = r && r.hourly; if (!h) return null;
+    const m0 = isWind ? h.wind_speed_10m : h.wave_height, d0 = isWind ? h.wind_direction_10m : h.wave_direction;
+    if (!m0 || m0[i] == null || m0[i + 1] == null || d0[i] == null || d0[i + 1] == null) return null;
+    const vec = k => { const a = (d0[k] + 180) * Math.PI / 180; return [Math.sin(a) * m0[k], Math.cos(a) * m0[k]]; };
+    const a = vec(i), b = vec(i + 1), u = a[0] + (b[0] - a[0]) * f, v = a[1] + (b[1] - a[1]) * f;
+    return { mag: m0[i] + (m0[i + 1] - m0[i]) * f, u, v }; });
+}
+function gridAt(vals, lat, lng) {   // bilinear interpolation inside the grid
+  const G = wxGrid, fx = (lng - G.w) / (G.e - G.w) * (G.nx - 1), fy = (lat - G.s) / (G.n - G.s) * (G.ny - 1);
+  if (fx < 0 || fy < 0 || fx > G.nx - 1 || fy > G.ny - 1) return null;
+  const x0 = Math.min(G.nx - 2, Math.floor(fx)), y0 = Math.min(G.ny - 2, Math.floor(fy)), dx = fx - x0, dy = fy - y0;
+  const c = [[x0, y0, (1 - dx) * (1 - dy)], [x0 + 1, y0, dx * (1 - dy)], [x0, y0 + 1, (1 - dx) * dy], [x0 + 1, y0 + 1, dx * dy]];
+  let m = 0, u = 0, v = 0, w = 0;
+  for (const [x, y, k] of c) { const p = vals[y * G.nx + x]; if (!p || k === 0) continue; m += p.mag * k; u += p.u * k; v += p.v * k; w += k; }
+  if (w < 0.5) return null;
+  return { mag: m / w, u: u / w, v: v / w };
+}
+function flowBuild() {   // rebuild the pixel field and heat map for the current view and slider time
+  if (!map || !FLOW.heat || !FLOW.visible || (wxMode !== "wind" && wxMode !== "waves") || !wxGrid || wxGrid.mode !== wxMode) return;
+  const size = map.getSize(), W = size.x, H = size.y, C = FLOW.cell;
+  const tl = map.containerPointToLayerPoint([0, 0]);
+  [FLOW.heat, FLOW.part].forEach(c => { L.DomUtil.setPosition(c, tl); if (c.width !== W || c.height !== H) { c.width = W; c.height = H; } });
+  const vals = gridSample(tNow);
+  if (!vals) { flowClear(); wxInfo(`No ${wxMode === "wind" ? "wind" : "wave"} forecast for this date. Forecasts reach ${wxMode === "wind" ? 16 : 8} days ahead.`); return; }
+  const cw = Math.ceil(W / C), ch = Math.ceil(H / C), fu = new Float32Array(cw * ch), fv = new Float32Array(cw * ch), ok = new Uint8Array(cw * ch);
+  const small = document.createElement("canvas"); small.width = cw; small.height = ch;
+  const sctx = small.getContext("2d"), img = sctx.createImageData(cw, ch);
+  const isWind = wxMode === "wind", pal = isWind ? WIND_PAL : WAVE_PAL, speed = isWind ? 0.045 : 0.35;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+    const ll = map.containerPointToLatLng([x * C + C / 2, y * C + C / 2]), r = gridAt(vals, ll.lat, ll.lng), k = y * cw + x;
+    if (!r) continue;
+    ok[k] = 1; const n = Math.hypot(r.u, r.v) || 1, sp = isWind ? r.mag : Math.max(0.6, r.mag);
+    fu[k] = r.u / n * sp * speed * (isWind ? 1 : 1); fv[k] = -r.v / n * sp * speed;
+    const c = palColor(pal, r.mag); img.data[k * 4] = c[0]; img.data[k * 4 + 1] = c[1]; img.data[k * 4 + 2] = c[2]; img.data[k * 4 + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+  const hctx = FLOW.heat.getContext("2d"); hctx.clearRect(0, 0, W, H); hctx.imageSmoothingEnabled = true; hctx.drawImage(small, 0, 0, cw * C, ch * C);
+  FLOW.field = { cw, ch, fu, fv, ok, W, H, vals };
+  const want = Math.min(4000, Math.round(W * H / (isWind ? 260 : 420)));
+  if (FLOW.parts.length !== want) FLOW.parts = Array.from({ length: want }, () => ({ x: Math.random() * W, y: Math.random() * H, a: Math.random() * 80 | 0 }));
+  if (!FLOW.raf) FLOW.raf = requestAnimationFrame(flowStep);
+}
+function flowStep() {
+  FLOW.raf = 0;
+  const F = FLOW.field; if (!F || !FLOW.visible || document.hidden) { if (F) FLOW.raf = requestAnimationFrame(flowStep); return; }
+  if (!document.getElementById("map").offsetParent) { FLOW.raf = requestAnimationFrame(flowStep); return; }   // map not on screen
+  const ctx = FLOW.part.getContext("2d"), C = FLOW.cell;
+  ctx.globalCompositeOperation = "destination-in"; ctx.fillStyle = "rgba(0,0,0,0.9)"; ctx.fillRect(0, 0, F.W, F.H);
+  ctx.globalCompositeOperation = "source-over"; ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = wxMode === "wind" ? 1.1 : 1.6;
+  ctx.beginPath();
+  for (const p of FLOW.parts) {
+    const cx = p.x / C | 0, cy = p.y / C | 0, k = cy * F.cw + cx;
+    if (p.a++ > 90 || cx < 0 || cy < 0 || cx >= F.cw || cy >= F.ch || !F.ok[k]) { p.x = Math.random() * F.W; p.y = Math.random() * F.H; p.a = 0; continue; }
+    const nx = p.x + F.fu[k], ny = p.y + F.fv[k];
+    ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); p.x = nx; p.y = ny;
+  }
+  ctx.stroke();
+  FLOW.raf = requestAnimationFrame(flowStep);
+}
+function flowValueAt(ll) {
+  if ((wxMode !== "wind" && wxMode !== "waves") || !FLOW.field || !wxGrid) return "";
+  const r = gridAt(FLOW.field.vals, ll.lat, ll.lng); if (!r) return "";
+  const dir = (Math.atan2(r.u, r.v) * 180 / Math.PI + 360) % 360, from = (dir + 180) % 360;
+  return wxMode === "wind" ? ` · ${Math.round(r.mag)} kn from ${compass(from)}` : ` · waves ${r.mag.toFixed(1)} m`;
+}
+
+async function loadWxGrid(force) {
+  if (!map || (wxMode !== "wind" && wxMode !== "waves")) return;
+  const b = map.getBounds(), size = map.getSize(), z = map.getZoom();
+  const G = wxGrid;
+  // reuse the loaded grid while the view stays inside it at a similar zoom
+  if (!force && G && G.mode === wxMode && Math.abs(G.z - z) < 2 && b.getSouth() >= G.s && b.getNorth() <= G.n && b.getWest() >= G.w && b.getEast() <= G.e) { flowBuild(); return; }
+  const padLat = (b.getNorth() - b.getSouth()) * 0.25, padLng = (b.getEast() - b.getWest()) * 0.25;
+  const s0 = Math.max(-78, b.getSouth() - padLat), n0 = Math.min(78, b.getNorth() + padLat), w0 = b.getWest() - padLng, e0 = b.getEast() + padLng;
+  const nx = Math.max(6, Math.min(15, Math.round(size.x / 75))), ny = Math.max(5, Math.min(11, Math.round(size.y / 75)));
+  const pts = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) pts.push([s0 + (n0 - s0) * j / (ny - 1), w0 + (e0 - w0) * i / (nx - 1)]);
+  const lat = pts.map(p => p[0].toFixed(2)).join(","), lon = pts.map(p => lon180(p[1]).toFixed(2)).join(",");
+  const url = wxMode === "wind"
+    ? `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&timeformat=unixtime&past_days=2&forecast_days=16`
+    : `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction&timeformat=unixtime&past_days=2&forecast_days=8`;
+  const id = ++wxReq, mode = wxMode;
+  wxInfo("Loading weather…");
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status);
+    let j = await r.json(); if (!Array.isArray(j)) j = [j];
+    if (id !== wxReq || mode !== wxMode) return;
+    wxGrid = { mode, res: j, nx, ny, s: s0, n: n0, w: w0, e: e0, z };
+    wxLegend(); flowBuild();
+  } catch (e) { if (id === wxReq) wxInfo("Weather data could not load (Open-Meteo). Check your connection or try again in a minute."); }
+}
+function wxLegend() {
+  const w = wxMode === "wind";
+  wxInfo(`${w ? "Wind at 10 m" : "Wave height"} · follows the date slider <span class="ramp" style="background:${w ? palRamp(WIND_PAL, 56) : palRamp(WAVE_PAL, 7)}"></span>${w ? "0 – 56+ kn" : "0 – 7+ m"} ·
+    move the cursor over the map for values · <a href="https://open-meteo.com" target="_blank" style="color:var(--accent)">Open-Meteo</a>`);
+}
+function drawWx() {   // called on every refresh (slider, play): re-sample the grid for the new time
+  if (wxMode !== "wind" && wxMode !== "waves") return;
+  if (wxGrid && wxGrid.mode === wxMode) { if (!FLOW.field) wxLegend(); flowBuild(); }
+}
+
+/* weather box in the ship card */
+const shipWxCache = {};
+const compass = d => d == null ? "" : ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(d / 22.5) % 16];
+let shipWxTimer = null;
+function shipWeather(v, st) { clearTimeout(shipWxTimer); shipWxTimer = setTimeout(() => shipWeatherNow(v, st), playing ? 1500 : 300); }
+async function shipWeatherNow(v, st) {
+  const el = document.getElementById("shipWx"); if (!el) return;
+  if (!st) { el.innerHTML = "<dt>No position</dt><dd></dd>"; return; }
+  const la = st.ll[0].toFixed(2), lo = lon180(st.ll[1]).toFixed(2), key = la + "," + lo;
+  try {
+    if (!shipWxCache[key]) shipWxCache[key] = Promise.all([
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,visibility,pressure_msl&wind_speed_unit=kn&timeformat=unixtime&past_days=2&forecast_days=16`).then(r => r.json()),
+      fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${la}&longitude=${lo}&hourly=wave_height,wave_direction,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature&timeformat=unixtime&past_days=2&forecast_days=8`).then(r => r.json()).catch(() => ({}))]);
+    const [a, m] = await shipWxCache[key];
+    if (document.getElementById("shipWx") !== el) return;
+    const pick = (h, f) => { if (!h || !h.time || !h[f]) return null; let i = 0, b = Infinity;
+      h.time.forEach((t, k) => { const d = Math.abs(t - tNow / 1000); if (d < b) { b = d; i = k; } }); return b > 3 * 3600 ? null : h[f][i]; };
+    const A = a.hourly, M = m && m.hourly;
+    const ws = pick(A, "wind_speed_10m"), wd = pick(A, "wind_direction_10m"), wg = pick(A, "wind_gusts_10m");
+    const row = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+    const sw = pick(M, "swell_wave_height"), wv = pick(M, "wave_height");
+    el.innerHTML = (ws == null && wv == null) ? "<dt>No forecast for this date</dt><dd></dd>" :
+      row("Wind", ws != null ? `${Math.round(ws)} kn ${compass(wd)}${wg != null ? ", gusts " + Math.round(wg) : ""}` : "") +
+      row("Waves", wv != null ? `${wv.toFixed(1)} m ${compass(pick(M, "wave_direction"))}` : "") +
+      row("Swell", sw != null ? `${sw.toFixed(1)} m ${compass(pick(M, "swell_wave_direction"))}${pick(M, "swell_wave_period") ? ", " + Math.round(pick(M, "swell_wave_period")) + " s" : ""}` : "") +
+      row("Air", pick(A, "temperature_2m") != null ? Math.round(pick(A, "temperature_2m")) + " °C" : "") +
+      row("Water", pick(M, "sea_surface_temperature") != null ? Math.round(pick(M, "sea_surface_temperature")) + " °C" : "") +
+      row("Visibility", pick(A, "visibility") != null ? Math.round(pick(A, "visibility") / 1000) + " km" : "") +
+      row("Pressure", pick(A, "pressure_msl") != null ? Math.round(pick(A, "pressure_msl")) + " hPa" : "");
+    const w = document.getElementById("shipWxWhen"); if (w) w.textContent = "· " + fDT(new Date(tNow));
+  } catch (e) { delete shipWxCache[key]; el.innerHTML = "<dt>Weather could not load</dt><dd></dd>"; }
+}
+
+/* ------------------------------------------------------------ fleet key (map overlay) */
+function renderKey() {
+  const el = document.getElementById("fleetkey");
+  if (sel !== null) { el.hidden = true; return; }
+  const rows = V.map(v => { const st = vesselState(v, tNow), k = statusKey(v, st);
+    return `<button class="row" data-v="${v.id}"><i style="--c:${markColor(v, st)}"></i><span>${esc(titleCase(v.name))}</span><span class="s">${esc(STATUS_COLORS[k][1].split(" /")[0])}${st && st.src === "live" ? " · live" : ""}</span></button>`; }).join("");
+  const counts = {}; V.forEach(v => { const k = statusKey(v, vesselState(v, tNow)); counts[k] = (counts[k] || 0) + 1; });
+  const statusRows = Object.entries(STATUS_COLORS).filter(([k]) => counts[k]).map(([k, [c, l]]) => `<div class="row" style="cursor:default"><i style="--c:${c}"></i><span>${l}</span><span class="s">${counts[k]}</span></div>`).join("");
+  el.innerHTML = `<h4>Fleet · ${V.length} vessels</h4>
+    <div class="seg" role="group" aria-label="Colour ships by"><button data-c="vessel" aria-pressed="${colorBy === "vessel"}">Colour by vessel</button><button data-c="status" aria-pressed="${colorBy === "status"}">by status</button></div>
+    ${colorBy === "status" ? statusRows + '<div class="shapes"></div>' : ""}${rows}
+    <div class="shapes"><span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="var(--fg-2)"/><path d="M18 6 5 11.3l5.2 1.6L11.8 18z" fill="#fff"/></svg>Under way (arrow shows heading)</span>
+    <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="var(--fg-2)"/><circle cx="12" cy="12" r="4" fill="#fff"/></svg>In port</span>
+    <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="var(--fg-2)" stroke-width="3"/></svg>Inbound, position not reported</span>
+    <span><svg width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="#18b26b" stroke="#fff" stroke-width="3"/></svg>Live AIS position</span>
+    <span><svg width="14" height="14" viewBox="0 0 24 24"><path d="M2 12h20" stroke="var(--fg-2)" stroke-width="2.5" stroke-dasharray="4 3"/></svg>Route, estimated departure</span></div>`;
+  el.hidden = false;
+  el.querySelectorAll("button.row").forEach(b => b.onclick = () => select(+b.dataset.v));
+  el.querySelectorAll(".seg button[data-c]").forEach(b => b.onclick = () => { colorBy = b.dataset.c; LS.set("colorBy", colorBy); refresh(false); });
+}
+
+/* ------------------------------------------------------------ side panel */
+function renderSide() {
+  const head = document.getElementById("sideHead"), body = document.getElementById("sideBody");
+  const t = new Date(tNow);
+  if (sel === null) {
+    const n = V.length, live = V.filter(liveFor).length;
+    head.innerHTML = `<h2>Novum fleet <span>(${n} vessels)</span></h2>
+      <div class="meta">Position list of ${fD(REPORT)} · ${live ? `<span class="lnk">${live} live on AIS</span>` : "positions projected from the schedule"}</div>
+      <div class="search"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <input id="q" type="search" placeholder="Search vessel, port, cargo or voyage" aria-label="Search the fleet"></div>`;
+    const q = document.getElementById("q");
+    q.value = renderSide.q || "";
+    q.oninput = () => { renderSide.q = q.value; renderFleetList(); };
+    renderFleetList();
+  } else {
+    const v = V[sel];
+    const id = IDS[v.name.toUpperCase()] || {}, live = liveFor(v);
+    head.innerHTML = `<h2>${esc(titleCase(v.name))} <span>(${esc(yr(v))})</span></h2>
+      <div class="meta">${id.imo ? "IMO: " + esc(id.imo) + " | " : ""}<span class="lnk">Novum</span> | ${esc(v.segment || "")}${live ? " | Latest AIS: " + fDT(new Date(live.time)) : ""}</div>
+      <div class="search"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <input id="q" type="search" placeholder="Search port, activity or voyage" aria-label="Search port calls"></div>`;
+    document.getElementById("q").oninput = e => { renderSide.vq = e.target.value; renderVoyages(v); };
+    document.getElementById("q").value = renderSide.vq || "";
+    renderVoyages(v);
+  }
+}
+function renderFleetList() {
+  const body = document.getElementById("sideBody"), t = new Date(tNow);
+  const q = (renderSide.q || "").toLowerCase();
+  const al = alerts();
+  let html = "";
+  if (!q && al.length) html += `<div class="sect">Needs attention</div>` + al.filter(a => a.sev !== "info").map(a => `<div class="alert ${a.sev}"><span class="sv"></span><div>${a.text}</div></div>`).join("");
+  html += `<div class="sect">Vessels</div>`;
+  V.filter(v => !q || JSON.stringify([v.name, v.cargoes, v.open_pos, v.remarks, v.stops.map(s => s.name + s.voy)]).toLowerCase().includes(q)).forEach(v => {
+    const st = vesselState(v, tNow);
+    const id = IDS[v.name.toUpperCase()] || {};
+    const lbl = st && st.src === "live" ? `<span class="src live">Live</span>` : (wsState === "live" && id.mmsi ? `<span class="src proj" title="No AIS signal yet; the free feed covers coastal waters only">No AIS signal</span>` : "");
+    html += `<button class="fleetrow" data-v="${v.id}"><span class="stripe" style="background:${v.color}"></span>
+      <div><div class="nm">${esc(titleCase(v.name))} <span>${esc(yr(v))}</span> <span class="st ${stClass(v.status)}">${esc(v.status)}</span> ${lbl}</div>
+      <div class="nx">${esc(st ? (st.src === "live" ? (st.live.nav || "Live position") + (st.live.sog != null ? ` · ${st.live.sog.toFixed(1)} kn` : "") : st.pr.text) : esc(v.current || ""))}</div>
+      <div class="nx">${esc(nextEvent(v, t))}</div></div>
+      <div class="op">Open<b>${esc(v.open_pos || "–")}</b>${esc(v.open_date || "")}</div></button>`;
+  });
+  if (al.some(a => a.sev === "info") && !q) html += `<div class="sect">Data notes</div>` + al.filter(a => a.sev === "info").map(a => `<div class="alert info"><span class="sv"></span><div>${a.text}</div></div>`).join("");
+  body.innerHTML = html;
+  body.querySelectorAll(".fleetrow").forEach(b => b.onclick = () => select(+b.dataset.v));
+}
+function renderVoyages(v) {
+  const body = document.getElementById("sideBody"), t = new Date(tNow);
+  const st = vesselState(v, tNow);
+  const q = (renderSide.vq || "").toLowerCase();
+  // group stops by voyage reference
+  const groups = [];
+  v.stops.forEach((s, i) => { const key = s.voy || "Current voyage"; let g = groups[groups.length - 1];
+    if (!g || g.key !== key) groups.push(g = { key, idx: [] }); g.idx.push(i); });
+  if (!groups.length) groups.push({ key: "No voyage scheduled", idx: [] });
+  let html = "";
+  groups.forEach((g, gi) => {
+    const stops = g.idx.map(i => v.stops[i]);
+    const prevStop = gi > 0 ? v.stops[groups[gi - 1].idx.slice(-1)[0]] : null;
+    const from = prevStop ? prevStop.name : (v.origin ? v.origin.name : stops[0] ? (stops[0].arr ? "At sea" : stops[0].name) : "");
+    const to = stops.length ? stops[stops.length - 1].name : "";
+    const t0 = prevStop ? T(prevStop.dep) : v.origin ? T(v.origin.dep) : stops[0] ? T(stops[0].arr || stops[0].dep) : null;
+    const tEnd = stops.length ? T(stops[stops.length - 1].dep || stops[stops.length - 1].arr) : null;
+    const active = t0 && tEnd ? tNow >= t0 && tNow <= tEnd : gi === 0;
+    const items = [];
+    if (gi === 0 && v.origin) items.push({ code: "S", cls: "start", name: v.origin.name, tm: `${fDT(T(v.origin.dep))}`, note: v.origin.est === false ? "Departed" : `Departed; time estimated at ${DATA.speed_kn} kn`, est: v.origin.est !== false, t: T(v.origin.dep) });
+    if (prevStop) items.push({ code: actCode(prevStop.act), name: prevStop.name, tm: `ETS ${fDT(T(prevStop.dep))}`, note: "End of previous voyage", t: T(prevStop.dep) });
+    stops.forEach(s => items.push({ code: actCode(s.act), name: s.name, act: s.act, tm: `${s.arr ? fDT(T(s.arr)) : "Alongside"}${s.dep && s.dep !== s.arr ? " | " + fDT(T(s.dep)) : ""}`,
+      note: s.note, tbc: s.tbc, est: s.est_arr || s.est_dep, t: T(s.arr || s.dep), t1: T(s.dep) }));
+    if (gi === 0 && v.fix && v.segsEff) {
+      items.push({ code: "A", name: v.fix.src === "AIS" ? "Last AIS position" : "Reported position", tm: fDT(new Date(v.fix.t)),
+        note: `${v.fix.lat.toFixed(2)}°, ${v.fix.lon.toFixed(2)}°${v.fix.sog ? " · " + v.fix.sog + " kn" : ""}${v.fix.src === "Manual" ? " · typed in" : " · ship now out of AIS range"}`, t: new Date(v.fix.t) });
+      items.sort((a, b) => (a.t || 0) - (b.t || 0));
+    }
+    // insert the "now" row
+    const nowI = items.findIndex(it => it.t && it.t.getTime() > tNow);
+    const inPort = st && st.pr && st.pr.state === "port";
+    if (active && st && !(inPort && st.src !== "live")) {
+      const row = { now: true, live: st.src === "live", text: st.src === "live" ? "Live position" : st.src === "inbound" ? "At sea (position not reported)" : "Vessel at sea (projected)" };
+      items.splice(nowI < 0 ? items.length : nowI, 0, row);
+    }
+    const label = gi === 0 && v.origin ? `${v.origin.name.split(",")[0]} – ${to.split(",")[0]}` : stops.length > 1 ? `${stops[0].name.split(",")[0]} – ${to.split(",")[0]}` : `${from.split(",")[0]} – ${to.split(",")[0]}`;
+    if (q && !JSON.stringify(items).toLowerCase().includes(q) && !label.toLowerCase().includes(q)) return;
+    html += `<details class="voy ${active ? "open" : ""}" ${active || gi === 0 ? "open" : ""}><summary>
+      <svg class="chev" width="12" height="12" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
+      <span class="vno">${esc(g.key.replace("Next voyage", "Next"))}</span><span class="vt">${esc(label)}</span><span></span>
+      <span class="vsub">${fD(t0)} | ${esc((v.cargoes || "").split("/")[0].trim())} | ${esc(kdwt(v))} DWT</span></summary><div class="calls">`;
+    items.forEach((it, k) => {
+      const nxt = items.slice(k + 1).find(x => x.t);
+      const gap = it.t && nxt && nxt.t ? days(nxt.t - (it.t1 || it.t)) : "";
+      if (it.now) {
+        html += `<div class="call"><span class="badge b-now ${it.live ? "live" : ""}"></span><div><span class="nowchip ${it.live ? "" : "proj"}">${esc(it.text)}</span>
+          <div class="nt">${st.src === "live" ? `${st.live.sog != null ? st.live.sog.toFixed(1) + " kn · " : ""}${st.live.nav || ""}` : esc(st.pr.text)}</div></div><span class="gap"></span></div>`;
+      } else {
+        html += `<div class="call ${it.est ? "dash" : ""}"><span class="badge b-${it.cls || it.code}">${it.code}</span><div>
+          <div class="pn">${esc(it.name)}${it.tbc ? '<span class="chip tbc">TBC</span>' : ""}${it.est ? '<span class="chip est">EST</span>' : ""}</div>
+          <div class="tm">${esc(it.tm)}</div>${it.note ? `<div class="nt">${esc(it.act ? it.act + " · " : "")}${esc(it.note)}</div>` : ""}</div>
+          <span class="gap">${gap}</span></div>`;
+      }
+    });
+    if (!items.length) html += `<div class="nt">${esc(v.remarks)}</div>`;
+    html += `</div></details>`;
+  });
+  if (v.window) html += `<div class="voy"><div class="remark"><b>${esc(v.window.label)}:</b> ${fD(T(v.window.start))} – ${fD(T(v.window.end))}</div></div>`;
+  html += `<div class="sect">Remarks as reported</div><div class="voy"><div class="remark">${esc(v.remarks)}</div></div>`;
+  body.innerHTML = html;
+}
+
+/* ------------------------------------------------------------ vessel card */
+function renderCard() {
+  const el = document.getElementById("vcard");
+  if (sel === null) { el.hidden = true; return; }
+  const v = V[sel], st = vesselState(v, tNow), id = IDS[v.name.toUpperCase()] || {};
+  const l = st && st.live, c = v.charter;
+  const proj = st && st.pr;
+  let pos = "";
+  if (l) pos = `<dl class="kv">
+      <dt>Source</dt><dd><span class="src live">Live AIS</span></dd>
+      <dt>Position</dt><dd>${l.lat.toFixed(2)}°, ${l.lon.toFixed(2)}°</dd>
+      <dt>Speed</dt><dd>${l.sog != null ? l.sog.toFixed(1) + " kn" : "–"}</dd>
+      <dt>Course</dt><dd>${l.cog != null ? Math.round(l.cog) + "°" : "–"}</dd>
+      <dt>Destination</dt><dd>${esc(l.dest || "–")}</dd>
+      <dt>Reported ETA</dt><dd>${esc(l.eta || "–")}</dd>
+      <dt>Draught</dt><dd>${l.draught ? l.draught + " m" : "–"}</dd>
+      <dt>Latest AIS</dt><dd>${fDT(new Date(l.time))}</dd>
+      <dt>Nav status</dt><dd>${esc(l.nav || "–")}</dd></dl>`;
+  else if (proj) pos = `<dl class="kv">
+      <dt>Source</dt><dd><span class="src proj">${proj.state === "region" ? "Area only" : "Projected"}</span></dd>
+      <dt>Status</dt><dd>${esc(proj.text)}</dd>
+      ${proj.state === "sea" ? `<dt>Position</dt><dd>${proj.ll[0].toFixed(2)}°, ${(((proj.ll[1] + 540) % 360) - 180).toFixed(2)}°</dd><dt>Course</dt><dd>${Math.round(proj.hdg)}°</dd>
+      <dt>Avg speed</dt><dd>${proj.seg.path && proj.seg.t1 && proj.seg.t0 ? (pathNm(proj.seg.path) / ((proj.seg.t1 - proj.seg.t0) / HOUR)).toFixed(1) + " kn" : "–"}</dd>
+      <dt>Leg</dt><dd>${proj.seg.path ? Math.round(pathNm(proj.seg.path)).toLocaleString() + " nm" : "–"}</dd>` : ""}
+      <dt>Reported</dt><dd>${esc(v.current || "–")}</dd>
+      <dt>Next</dt><dd>${esc(nextEvent(v, new Date(tNow)) || "–")}</dd></dl>
+      <div class="nt" style="font-size:11.5px;color:var(--fg-3);margin-top:6px">${aisNote(v)}</div>`;
+  el.innerHTML = `<button class="close" aria-label="Back to fleet" id="cardX">×</button>
+    <h3>${esc(titleCase(v.name))} <span>(${esc(yr(v))})</span></h3><div class="owner">Novum · ${esc(v.segment || "")}</div>
+    <section><h4>${l ? "AIS info" : "Position"}</h4>${pos}</section>
+    <section><h4>Weather at ship <span style="font-weight:400;color:var(--fg-3)" id="shipWxWhen"></span></h4><dl class="kv" id="shipWx"><dt>Loading…</dt><dd></dd></dl>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn" id="cardWx" type="button" style="padding:4px 10px;font-size:12px">Show weather at ship</button>
+      <a class="btn" style="padding:4px 10px;font-size:12px;text-decoration:none" target="_blank" rel="noopener" href="${windyLink(v)}">Windy.com ↗</a></div></section>
+    <section><h4>Position report</h4><div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn" id="posBtn" type="button" style="padding:4px 10px;font-size:12px">Update position…</button>
+      ${(LS.get("fixes", {}))[v.name.toUpperCase()] ? `<button class="btn" id="posClr" type="button" style="padding:4px 10px;font-size:12px">Clear typed position</button>` : ""}</div></section>
+    <section><h4>Availability</h4><dl class="kv"><dt>Open position</dt><dd>${esc(v.open_pos || "–")}</dd><dt>Open date</dt><dd>${esc(v.open_date || "–")}</dd><dt>Last 3 cargoes</dt><dd>${esc(v.cargoes || "–")}</dd></dl></section>
+    ${c ? `<section><h4>Charter</h4><dl class="kv"><dt>Delivered</dt><dd>${esc(String(c.delivery || "–").split("/")[0])}</dd>
+      <dt>Redelivery</dt><dd>${c.earliest ? fDd(T(c.earliest + "T00:00")) + " – " + fD(T(c.latest + "T00:00")) : "TBC"}</dd></dl></section>` : ""}`;
+  el.hidden = false;
+  document.getElementById("cardX").onclick = () => select(null);
+  document.getElementById("posBtn").onclick = () => openPosDlg(v);
+  const clr = document.getElementById("posClr");
+  if (clr) clr.onclick = () => { const fx = LS.get("fixes", {}); delete fx[v.name.toUpperCase()]; LS.set("fixes", fx); updateFixes(v); refresh(false); };
+  document.getElementById("cardWx").onclick = () => { wxSel = v.id; setView("wx"); };
+  shipWeather(v, st);
+}
+
+/* ------------------------------------------------------------ gantt */
+function renderGantt() {
+  const box = document.getElementById("gantt");
+  const t0 = RANGE0.getTime(), t1 = RANGE1.getTime();
+  const L0 = 150, W = Math.max(900, box.clientWidth - 2) , RH = 40, top = 34, H = top + RH * V.length + 10;
+  const x = t => L0 + (Math.max(t0, Math.min(t1, t)) - t0) / (t1 - t0) * (W - L0 - 12);
+  let s = `<svg class="gantt" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Fleet schedule timeline">
+    <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="var(--panel)"/><line x1="0" y1="0" x2="0" y2="6" stroke="var(--fg-3)" stroke-width="2"/></pattern></defs>`;
+  for (let d = t0; d <= t1; d += DAY) {
+    const dt = new Date(d), mon = dt.getDay() === 1;
+    s += `<line class="${mon ? "wk" : "grid"}" x1="${x(d)}" x2="${x(d)}" y1="${top - 6}" y2="${H - 6}"/>`;
+    if (mon || (dt.getDate() === 1 && dt.getDay() !== 0 && dt.getDay() > 3)) s += `<text x="${x(d) + 3}" y="${top - 12}">${fDd(dt)}</text>`;
+  }
+  V.forEach((v, r) => {
+    const y = top + r * RH, cy = y + RH / 2;
+    s += `<text class="vn" x="12" y="${cy + 4}" data-v="${v.id}">${esc(titleCase(v.name))}</text><rect x="4" y="${cy - 6}" width="4" height="12" rx="1" fill="${v.color}"/>`;
+    v.segs.forEach(g => {
+      const a = g.t0 ? g.t0.getTime() : t0, b = g.t1 ? g.t1.getTime() : (g.stop && g.stop.dep ? T(g.stop.dep).getTime() : t1);
+      if (b < t0 || a > t1) return;
+      if (g.kind === "sea") s += `<line x1="${x(a)}" x2="${x(b)}" y1="${cy}" y2="${cy}" stroke="${v.color}" stroke-width="2.5" ${g.est0 || g.est1 ? 'stroke-dasharray="5 4"' : ""}><title>${esc(g.from)} → ${esc(g.to)} · ${g.nm} nm</title></line>`;
+      else {
+        if (g.stop.act === "AIS fix") { s += `<circle cx="${x(a)}" cy="${cy}" r="4" fill="var(--proj)" stroke="var(--panel)" stroke-width="1.5"><title>AIS position ${fDT(g.t0)}</title></circle>`; return; }
+        const st = g.stop, bEnd = g.t1 ? b : Math.min(t1, a + 2 * DAY), w = Math.max(6, x(bEnd) - x(a));
+        const fill = st.act === "Transit" ? "var(--port)" : actColor(st.act);
+        s += `<rect x="${x(a)}" y="${cy - 11}" width="${w}" height="22" rx="3" fill="${st.est_dep || st.est_arr ? "url(#hatch)" : fill}" ${st.est_dep || st.est_arr ? `stroke="${fill}" stroke-width="2"` : ""}><title>${esc(st.name)} · ${esc(st.act)}\n${st.arr ? "ETA " + fDT(T(st.arr)) : "Alongside"}${st.dep ? " · ETS " + fDT(T(st.dep)) : ""}${st.tbc ? " (TBC)" : ""}</title></rect>`;
+        const lbl = st.name.split(",")[0].replace(/ \(.*\)/, "");
+        if (w > 44) s += `<text class="lbl ${st.est_dep || st.est_arr ? "dark" : ""}" x="${x(a) + 5}" y="${cy + 4}">${esc(lbl.length * 5.8 > w - 8 ? lbl.slice(0, Math.max(3, Math.floor((w - 8) / 5.8))) : lbl)}</text>`;
+        else s += `<text x="${x(a) + w + 3}" y="${cy - 14}" style="font-size:10px">${esc(lbl)}</text>`;
+      }
+    });
+    if (v.window) { const a = T(v.window.start).getTime(), b = T(v.window.end).getTime();
+      s += `<rect x="${x(a)}" y="${cy - 11}" width="${Math.max(6, x(b) - x(a))}" height="22" rx="3" fill="var(--proj)" opacity=".85"><title>${esc(v.window.label)}</title></rect><text class="lbl dark" x="${x(a) + 5}" y="${cy + 4}">${esc(v.window.label)}</text>`;
+      if (v.region) s += `<text x="${x(t0) + 6}" y="${cy + 4}">${esc(v.status)} · ${esc(v.region.label)}</text>`; }
+  });
+  s += `<line class="now" x1="${x(tNow)}" x2="${x(tNow)}" y1="${top - 6}" y2="${H - 6}"/><text x="${x(tNow) + (x(tNow) > W - 70 ? -4 : 4)}" text-anchor="${x(tNow) > W - 70 ? "end" : "start"}" y="${H - 10}" style="fill:var(--accent);font-weight:600">${fDd(new Date(tNow))}</text></svg>`;
+  box.innerHTML = s;
+  box.querySelectorAll(".vn").forEach(n => n.onclick = () => { setView("live"); select(+n.dataset.v); });
+}
+
+/* ------------------------------------------------------------ particulars */
+function renderPart() {
+  const n = v => v == null ? "–" : v;
+  let h = `<h2>Particulars</h2><p class="lede">From the position list of ${fD(REPORT)}. DWT and cubics are in thousands (MT and m³); draft, beam and LOA are in metres.</p>
+  <div class="tablebox"><table class="t"><thead><tr><th>Vessel</th><th>Type</th><th>Built</th><th>DWT</th><th>Cubics</th><th>Draft</th><th>Beam</th><th>LOA</th><th>Last 3 cargoes</th><th>Open</th><th>Redelivery</th><th>MMSI / IMO</th></tr></thead><tbody>`;
+  V.forEach(v => {
+    const c = v.charter || {}, id = IDS[v.name.toUpperCase()] || {};
+    h += `<tr><td><b>${esc(titleCase(v.name))}</b></td><td>${esc(v.segment)}</td><td class="n">${n(v.year)}</td><td class="n">${n(v.dwt)}</td><td class="n">${n(v.cubics)}</td>
+      <td class="n">${n(v.draft)}</td><td class="n">${n(v.beam)}</td><td class="n">${n(v.loa)}</td><td>${esc(v.cargoes)}</td><td>${esc(v.open_pos)}<br><span style="color:var(--fg-2)">${esc(v.open_date)}</span></td>
+      <td>${c.earliest ? fDd(T(c.earliest + "T00:00")) + " – " + fD(T(c.latest + "T00:00")) : "–"}</td>
+      <td class="mono" style="font-size:12px">${esc(id.mmsi || "–")}<br>${esc(id.imo || "–")}</td></tr>`;
+  });
+  h += `</tbody></table></div>`;
+  document.getElementById("partBody").innerHTML = h;
+}
+
+/* ------------------------------------------------------------ weather (Windy embed, no key needed) */
+const WX_LAYERS = [["wind", "Wind"], ["gust", "Gusts"], ["waves", "Waves"], ["swell1", "Swell"], ["currents", "Currents"], ["rain", "Rain"], ["pressure", "Pressure"], ["temp", "Temperature"], ["visibility", "Visibility"]];
+const WX_MODELS = [["ecmwf", "ECMWF"], ["gfs", "GFS"], ["icon", "ICON"]];
+let wxLayer = LS.get("wxLayer", "wind"), wxModel = LS.get("wxModel", "ecmwf"), wxSel = null, wxLastSrc = "";
+function wxPos(v) {   // ship position now (live if available, otherwise projected), longitude normalised
+  const st = vesselState(v, Math.min(Math.max(Date.now(), RANGE0.getTime()), RANGE1.getTime()));
+  if (!st) return null;
+  return [st.ll[0], ((st.ll[1] + 540) % 360) - 180];
+}
+function windyLink(v) {
+  const p = wxPos(v); if (!p) return "https://www.windy.com";
+  return `https://www.windy.com/?${wxLayer},${wxModel},${p[0].toFixed(3)},${p[1].toFixed(3)},7,m:${p[0].toFixed(2)},${p[1].toFixed(2)}`;
+}
+let wxView = LS.get("wxView", "anim");
+function placeMap(inWx) {   // the Live view map is shared with the Weather tab
+  const mw = document.getElementById("mapWrap"), host = document.getElementById("wxMapHost"), live = document.getElementById("v-live");
+  if (inWx && mw.parentNode !== host) host.insertBefore(mw, host.firstChild);
+  if (!inWx && mw.parentNode !== live) live.insertBefore(mw, live.firstChild);
+  if (map) setTimeout(() => { map.invalidateSize(); fit(); }, 0);
+}
+function renderWx() {
+  if (wxSel === null) wxSel = sel !== null ? sel : 0;
+  const v = V[wxSel], p = wxPos(v) || [18, -60];
+  const chip = (list, cur, attr) => list.map(([k, l]) => `<button data-${attr}="${k}" aria-pressed="${k === cur}">${l}</button>`).join("");
+  document.getElementById("wxViews").innerHTML = chip([["anim", "Voyage animation"], ["windy", "Windy map"]], wxView, "w");
+  document.getElementById("wxWindyOpts").hidden = wxView !== "windy";
+  document.getElementById("wxLayers").innerHTML = chip(WX_LAYERS, wxLayer, "l");
+  document.getElementById("wxModels").innerHTML = chip(WX_MODELS, wxModel, "m");
+  document.getElementById("wxShips").innerHTML = V.map(x => { const q = wxPos(x);
+    return `<button data-v="${x.id}" aria-pressed="${x.id === wxSel}"><i style="--c:${x.color}"></i><span>${esc(titleCase(x.name))}</span><span class="s">${q ? q[0].toFixed(1) + ", " + q[1].toFixed(1) : ""}</span></button>`; }).join("");
+  document.querySelectorAll("#wxViews button").forEach(b => b.onclick = () => { wxView = b.dataset.w; LS.set("wxView", wxView); renderWx(); });
+  document.querySelectorAll("#wxLayers button").forEach(b => b.onclick = () => { wxLayer = b.dataset.l; LS.set("wxLayer", wxLayer); renderWx(); });
+  document.querySelectorAll("#wxModels button").forEach(b => b.onclick = () => { wxModel = b.dataset.m; LS.set("wxModel", wxModel); renderWx(); });
+  document.querySelectorAll("#wxShips button").forEach(b => b.onclick = () => { wxSel = +b.dataset.v; renderWx(); });
+  document.getElementById("wxOpen").href = windyLink(v);
+  const frame = document.getElementById("wxFrame");
+  if (wxView === "windy") {
+    placeMap(false); frame.hidden = false;
+    const src = "https://embed.windy.com/embed2.html?" + new URLSearchParams({
+      lat: p[0].toFixed(3), lon: p[1].toFixed(3), detailLat: p[0].toFixed(3), detailLon: p[1].toFixed(3),
+      zoom: v.region ? 4 : 6, level: "surface", overlay: wxLayer, product: wxModel, menu: "", message: "true", marker: "true",
+      calendar: "now", pressure: "true", type: "map", location: "coordinates", detail: "true",
+      metricWind: "kt", metricTemp: "°C", radarRange: "-1" }).toString();
+    if (src !== wxLastSrc) { frame.src = src; wxLastSrc = src; }
+  } else {
+    frame.hidden = true;
+    placeMap(true);
+    if (wxMode === "off") { wxMode = "wind"; LS.set("wxOverlay", wxMode); renderWxBar(); applyWxMode(); }
+    if (sel !== wxSel) { sel = wxSel; refresh(true); }
+  }
+  renderVoyageWx();
+}
+
+/* weather along the selected ship's voyage: wind and waves at its projected position every 6 hours */
+const voyWxCache = {};
+async function loadVoyageWx(v) {
+  const now = Date.now(), H6 = 6 * HOUR;
+  const lastEv = Math.max(...v.stops.map(s => T(s.dep || s.arr)).filter(Boolean).map(d => d.getTime()));
+  const t0 = Math.floor(Math.max(RANGE0.getTime(), now - DAY) / H6) * H6, t1 = Math.min(lastEv + DAY, now + 16 * DAY);
+  const samples = [];
+  for (let t = t0; t <= t1; t += H6) { const pr = projected(v, t); if (pr && pr.state !== "region") samples.push({ t, ll: [pr.ll[0], lon180(pr.ll[1])], state: pr.state, text: pr.text }); }
+  if (!samples.length) return { samples, t0, t1 };
+  const lat = samples.map(s => s.ll[0].toFixed(2)).join(","), lon = samples.map(s => s.ll[1].toFixed(2)).join(",");
+  const [a, m] = await Promise.all([
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m&wind_speed_unit=kn&timeformat=unixtime&past_days=2&forecast_days=16`).then(r => r.json()),
+    fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,swell_wave_height&timeformat=unixtime&past_days=2&forecast_days=8`).then(r => r.ok ? r.json() : null).catch(() => null)]);
+  const A = Array.isArray(a) ? a : [a], M = m ? (Array.isArray(m) ? m : [m]) : [];
+  const pick = (h, f, t) => { if (!h || !h.time || !h[f]) return null; let i = -1, b = Infinity;
+    for (let k = 0; k < h.time.length; k++) { const d = Math.abs(h.time[k] - t / 1000); if (d < b) { b = d; i = k; } } return b > 3 * 3600 ? null : h[f][i]; };
+  samples.forEach((s, k) => { const ha = A[k] && A[k].hourly, hm = M[k] && M[k].hourly;
+    s.wind = pick(ha, "wind_speed_10m", s.t); s.gust = pick(ha, "wind_gusts_10m", s.t); s.dir = pick(ha, "wind_direction_10m", s.t);
+    s.wave = pick(hm, "wave_height", s.t); s.swell = pick(hm, "swell_wave_height", s.t); });
+  return { samples, t0, t1 };
+}
+async function renderVoyageWx() {
+  const el = document.getElementById("wxChart");
+  if (wxSel === null || document.getElementById("v-wx").hidden) return;
+  const v = V[wxSel];
+  if (!v.stops.length) { el.innerHTML = `<div class="hd"><h3>${esc(titleCase(v.name))}: weather along the voyage</h3></div><div class="sum">No route in the position list for this vessel, so there is no voyage to forecast.</div>`; return; }
+  if (!voyWxCache[v.id]) { el.innerHTML = `<div class="hd"><h3>${esc(titleCase(v.name))}: weather along the voyage</h3></div><div class="sum">Loading forecast along the route…</div>`;
+    voyWxCache[v.id] = loadVoyageWx(v).catch(e => { delete voyWxCache[v.id]; throw e; }); }
+  let d; try { d = await voyWxCache[v.id]; } catch (e) { el.innerHTML = `<div class="sum">The forecast along the route could not load (Open-Meteo). Check your connection and reopen this tab.</div>`; return; }
+  if (V[wxSel] !== v) return;
+  drawVoyageChart(el, v, d);
+}
+function drawVoyageChart(el, v, d) {
+  const S = d.samples.filter(s => s.wind != null || s.wave != null);
+  const head = `<div class="hd"><h3>${esc(titleCase(v.name))}: weather along the voyage</h3><span class="sum">Wind <span style="color:var(--accent)">━</span> gusts <span style="color:var(--accent)">┅</span> · waves <span style="color:#0e9aa7">▮</span> · grey bands are port stays · click the chart to jump to that time</span></div>`;
+  if (!S.length) { el.innerHTML = head + `<div class="sum">No forecast is available yet for the rest of this voyage. Forecasts reach 16 days ahead for wind and 8 days for waves.</div>`; return; }
+  // summary of the roughest point at sea
+  const fut = S.filter(s => s.t >= Date.now() - 3 * HOUR), sea0 = (fut.length ? fut : S), sea = sea0.filter(s => s.state === "sea");
+  const wMax = (sea.length ? sea : sea0).reduce((a, b) => (b.gust ?? b.wind ?? 0) > (a.gust ?? a.wind ?? 0) ? b : a);
+  const vMax = (sea.length ? sea : sea0).filter(s => s.wave != null).reduce((a, b) => !a || b.wave > a.wave ? b : a, null);
+  const sev = (x, a, b) => x >= b ? "bad" : x >= a ? "warn" : "";
+  let sum = `Roughest ahead: <b class="${sev(wMax.gust ?? wMax.wind, 28, 40)}">${Math.round(wMax.wind)} kn, gusts ${Math.round(wMax.gust ?? wMax.wind)} kn</b> around ${fDT(new Date(wMax.t))} (${esc(wMax.text.replace("At sea, ", ""))})`;
+  if (vMax) sum += ` · highest waves <b class="${sev(vMax.wave, 2.5, 4)}">${vMax.wave.toFixed(1)} m</b> around ${fDT(new Date(vMax.t))}`;
+  // chart geometry
+  const W = Math.max(640, el.clientWidth - 28), H = 158, L0 = 34, R0 = 34, T0 = 20, B0 = 22, ih = H - T0 - B0;
+  const ta = d.t0, tb = d.t1, x = t => L0 + (t - ta) / (tb - ta) * (W - L0 - R0);
+  const wTop = Math.max(30, Math.ceil(Math.max(...S.map(s => s.gust ?? s.wind ?? 0)) / 10) * 10);
+  const vTop = Math.max(3, Math.ceil(Math.max(...S.map(s => s.wave ?? 0))));
+  const yw = k => T0 + ih - k / wTop * ih, yv = m => T0 + ih - m / vTop * ih;
+  let g = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Wind and waves along the voyage of ${esc(v.name)}">`;
+  // port stays
+  v.segs.filter(sg => sg.kind === "port").forEach(sg => { const a = Math.max(ta, sg.t0 ? sg.t0.getTime() : ta), b = Math.min(tb, sg.t1 ? sg.t1.getTime() : tb); if (b <= a) return;
+    g += `<rect x="${x(a)}" y="${T0}" width="${Math.max(2, x(b) - x(a))}" height="${ih}" fill="var(--line-2)"/><text x="${x(a) + 3}" y="${T0 + 10}">${esc(sg.stop.name.split(",")[0].replace(/ \(.*\)/, ""))}</text>`; });
+  // forecast horizon for waves
+  const waveEnd = Date.now() + 8 * DAY;
+  if (waveEnd < tb) g += `<text x="${x(waveEnd) + 4}" y="${T0 - 6}" style="fill:var(--fg-3)">no wave forecast after this</text><line x1="${x(waveEnd)}" x2="${x(waveEnd)}" y1="${T0}" y2="${T0 + ih}" stroke="var(--fg-3)" stroke-dasharray="2 3"/>`;
+  // grid + axes
+  for (let k = 0; k <= wTop; k += 10) g += `<line x1="${L0}" x2="${W - R0}" y1="${yw(k)}" y2="${yw(k)}" stroke="var(--line-2)"/><text x="${L0 - 4}" y="${yw(k) + 3}" text-anchor="end">${k}</text>`;
+  for (let m = 0; m <= vTop; m++) g += `<text x="${W - R0 + 4}" y="${yv(m) + 3}">${m}</text>`;
+  g += `<text x="${L0 - 4}" y="${T0 - 2}" text-anchor="end">kn</text><text x="${W - R0 + 4}" y="${T0 - 2}">m</text>`;
+  if (28 < wTop) g += `<line x1="${L0}" x2="${W - R0}" y1="${yw(28)}" y2="${yw(28)}" stroke="var(--warn)" stroke-dasharray="4 3"/><text x="${W - R0 - 4}" y="${yw(28) - 3}" text-anchor="end" style="fill:var(--warn)">28 kn (Bft 7)</text>`;
+  for (let t = Math.ceil(ta / DAY) * DAY; t <= tb; t += DAY) { const dt = new Date(t); if ((tb - ta) / DAY > 12 && dt.getDate() % 2) continue;
+    g += `<text x="${x(t)}" y="${H - 6}" text-anchor="middle">${fDd(dt)}</text>`; }
+  // waves as bars
+  const bw = Math.max(2, (x(ta + 6 * HOUR) - x(ta)) * 0.7);
+  S.forEach(s => { if (s.wave == null) return; const c = s.wave >= 4 ? "var(--crit)" : s.wave >= 2.5 ? "var(--warn)" : "#0e9aa7";
+    g += `<rect x="${x(s.t) - bw / 2}" y="${yv(s.wave)}" width="${bw}" height="${T0 + ih - yv(s.wave)}" fill="${c}" opacity=".55"><title>${fDT(new Date(s.t))} · waves ${s.wave.toFixed(1)} m${s.swell != null ? ", swell " + s.swell.toFixed(1) + " m" : ""}</title></rect>`; });
+  // wind + gust lines
+  const line = (f, dash, wdt) => { const p = S.filter(s => s[f] != null).map(s => `${x(s.t).toFixed(1)},${yw(s[f]).toFixed(1)}`).join(" ");
+    return p ? `<polyline points="${p}" fill="none" stroke="var(--accent)" stroke-width="${wdt}" ${dash ? `stroke-dasharray="${dash}" opacity=".7"` : ""}/>` : ""; };
+  g += line("gust", "3 3", 1.2) + line("wind", "", 2);
+  S.forEach(s => { if (s.wind == null) return; const c = s.wind >= 34 ? "var(--crit)" : s.wind >= 28 ? "var(--warn)" : "var(--accent)";
+    g += `<circle cx="${x(s.t)}" cy="${yw(s.wind)}" r="${s.wind >= 28 ? 3.5 : 2}" fill="${c}"><title>${fDT(new Date(s.t))} · ${esc(s.text)}\nWind ${Math.round(s.wind)} kn ${compass(s.dir)}, gusts ${Math.round(s.gust ?? s.wind)} kn${s.wave != null ? " · waves " + s.wave.toFixed(1) + " m" : ""}</title></circle>`; });
+  // cursor at the slider time
+  if (tNow >= ta && tNow <= tb) g += `<line x1="${x(tNow)}" x2="${x(tNow)}" y1="${T0 - 4}" y2="${T0 + ih}" stroke="var(--fg)" stroke-width="1.5"/><circle cx="${x(tNow)}" cy="${T0 - 4}" r="3" fill="var(--fg)"/>`;
+  g += `</svg>`;
+  el.innerHTML = head + `<div class="sum" style="margin-bottom:4px">${sum}</div><div class="cbox">${g}</div>`;
+  const svg = el.querySelector("svg");
+  svg.onclick = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * (W / r.width);
+    const t = ta + (px - L0) / (W - L0 - R0) * (tb - ta); tNow = Math.min(Math.max(t, RANGE0.getTime()), RANGE1.getTime());
+    slider.value = toSlider(tNow); refresh(false); };
+}
+
+/* ------------------------------------------------------------ GIF export (drawn on a canvas, encoded in the page) */
+function gifEncoder(W, H, palette) {   // palette: array of [r,g,b], up to 255 colours; index 255 = transparent
+  const bytes = []; const push = (...b) => { for (const x of b) bytes.push(x & 255); };
+  const u16 = n => push(n, n >> 8);
+  "GIF89a".split("").forEach(c => push(c.charCodeAt(0)));
+  u16(W); u16(H); push(0xF7, 0, 0);
+  for (let i = 0; i < 256; i++) { const c = palette[i] || [0, 0, 0]; push(c[0], c[1], c[2]); }
+  push(0x21, 0xFF, 0x0B); "NETSCAPE2.0".split("").forEach(c => push(c.charCodeAt(0))); push(3, 1, 0, 0, 0);
+  function lzw(idx) {
+    const out = []; let cur = 0, shift = 0, size = 9, next = 258, table = new Map();
+    const emit = code => { cur |= code << shift; shift += size; while (shift >= 8) { out.push(cur & 255); cur >>>= 8; shift -= 8; } };
+    emit(256);
+    let ib = idx[0];
+    for (let i = 1; i < idx.length; i++) {
+      const k = idx[i], key = (ib << 8) | k, c = table.get(key);
+      if (c === undefined) {
+        emit(ib);
+        if (next === 4096) { emit(256); next = 258; size = 9; table = new Map(); }
+        else { if (next >= (1 << size)) size++; table.set(key, next++); }
+        ib = k;
+      } else ib = c;
+    }
+    emit(ib); emit(257);
+    if (shift > 0) out.push(cur & 255);
+    return out;
+  }
+  return {
+    frame(idx, x, y, w, h, delayCs, transparent) {
+      push(0x21, 0xF9, 4, (1 << 2) | (transparent ? 1 : 0)); u16(delayCs); push(255, 0);
+      push(0x2C); u16(x); u16(y); u16(w); u16(h); push(0);
+      push(8);
+      const data = lzw(idx);
+      for (let i = 0; i < data.length; i += 255) { const n = Math.min(255, data.length - i); push(n); for (let j = 0; j < n; j++) bytes.push(data[i + j]); }
+      push(0);
+    },
+    finish() { push(0x3B); return new Uint8Array(bytes); }
+  };
+}
+function buildPalette(img, fixed) {   // popularity of 15-bit colours from the base image, plus fixed colours
+  const cnt = new Map(), d = img.data;
+  for (let i = 0; i < d.length; i += 4 * 3) { const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3); cnt.set(k, (cnt.get(k) || 0) + 1); }
+  const pal = fixed.slice();
+  [...cnt.entries()].sort((a, b) => b[1] - a[1]).some(([k]) => { if (pal.length >= 255) return true;
+    pal.push([((k >> 10) & 31) * 8 + 4, ((k >> 5) & 31) * 8 + 4, (k & 31) * 8 + 4]); return false; });
+  // ramp of greys and the light ocean tones fill any gaps
+  for (let g = 0; pal.length < 255; g += 17) pal.push([Math.min(255, g), Math.min(255, g), Math.min(255, g + 6)]);
+  return pal;
+}
+function makeIndexer(pal) {
+  const lut = new Int16Array(32768).fill(-1);
+  return (r, g, b) => {
+    const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+    let v = lut[k]; if (v >= 0) return v;
+    let best = 1e9; v = 0;
+    for (let i = 0; i < pal.length; i++) { const c = pal[i], dr = c[0] - r, dg = c[1] - g, db = c[2] - b, e = 2 * dr * dr + 4 * dg * dg + 3 * db * db; if (e < best) { best = e; v = i; } }
+    lut[k] = v; return v;
+  };
+}
+const hexRgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+async function makeGif(W, H, stepH, onProgress) {
+  // 1. view: every port, route point and ship position east of 130°W (keeps the Atlantic in frame)
+  const pts = [];
+  V.forEach(v => v.segs.forEach(g => { if (g.path) pts.push(...g.path); else if (g.stop) pts.push([g.stop.lat, g.stop.lon]); }));
+  const use = pts.filter(p => p[1] > -130);
+  let la0 = Math.min(...use.map(p => p[0])), la1 = Math.max(...use.map(p => p[0])), lo0 = Math.min(...use.map(p => p[1])), lo1 = Math.max(...use.map(p => p[1]));
+  const mx = lo => (lo + 180) / 360, my = la => { const s = Math.sin(la * Math.PI / 180); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
+  const HEAD = Math.round(H * 0.085), mapH = H - HEAD;
+  let x0 = mx(lo0), x1 = mx(lo1), y0 = my(la1), y1 = my(la0);
+  const padX = (x1 - x0) * 0.06, padY = (y1 - y0) * 0.08; x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
+  // match aspect ratio
+  const ar = W / mapH;
+  if ((x1 - x0) / (y1 - y0) < ar) { const c = (x0 + x1) / 2, w = (y1 - y0) * ar; x0 = c - w / 2; x1 = c + w / 2; }
+  else { const c = (y0 + y1) / 2, h = (x1 - x0) / ar; y0 = c - h / 2; y1 = c + h / 2; }
+  const worldPx = W / (x1 - x0);                 // pixels per world unit
+  const zf = Math.log2(worldPx / 256), z = Math.max(1, Math.min(8, Math.ceil(zf)));
+  const toPx = ll => [(mx(ll[1]) - x0) * worldPx, HEAD + (my(ll[0]) - y0) * worldPx];
+
+  // 2. base map from Esri tiles (CORS-enabled); falls back to a plain chart if tiles cannot be used
+  const base = document.createElement("canvas"); base.width = W; base.height = H;
+  const bc = base.getContext("2d");
+  bc.fillStyle = "#dfe7ef"; bc.fillRect(0, 0, W, H);
+  let tilesOk = false;
+  const n = 2 ** z, tpx = worldPx / n;            // tile size on screen
+  const loadTiles = async url => {
+    const jobs = [];
+    for (let ty = Math.floor(y0 * n); ty <= Math.floor(y1 * n); ty++) for (let tx = Math.floor(x0 * n); tx <= Math.floor(x1 * n); tx++) {
+      if (ty < 0 || ty >= n) continue;
+      jobs.push(new Promise(res => { const im = new Image(); im.crossOrigin = "anonymous";
+        im.onload = () => { bc.drawImage(im, (tx / n - x0) * worldPx, HEAD + (ty / n - y0) * worldPx, tpx + 0.5, tpx + 0.5); res(true); };
+        im.onerror = () => res(false);
+        im.src = url.replace("{z}", z).replace("{y}", ty).replace("{x}", ((tx % n) + n) % n); setTimeout(() => res(false), 15000); }));
+    }
+    const r = await Promise.all(jobs); return r.filter(Boolean).length > r.length * 0.8;
+  };
+  onProgress(0, "Loading the map…");
+  for (const url of ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+                     "https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}"]) {
+    try { if (await loadTiles(url)) { bc.getImageData(0, 0, 1, 1); tilesOk = true; break; } } catch (e) { /* canvas tainted */ }
+    bc.fillStyle = "#dfe7ef"; bc.fillRect(0, 0, W, H);
+  }
+  if (!tilesOk) {   // plain chart: graticule only
+    bc.strokeStyle = "#c9d4e0"; bc.lineWidth = 1; bc.fillStyle = "#7b8796"; bc.font = `${Math.round(H / 60)}px ${getComputedStyle(document.body).fontFamily}`;
+    for (let lo = -180; lo <= 180; lo += 10) { const [x] = toPx([0, lo]); if (x < 0 || x > W) continue; bc.beginPath(); bc.moveTo(x, HEAD); bc.lineTo(x, H); bc.stroke(); bc.fillText(`${Math.abs(lo)}°${lo < 0 ? "W" : "E"}`, x + 3, H - 6); }
+    for (let la = -60; la <= 70; la += 10) { const [, y] = toPx([la, 0]); if (y < HEAD || y > H) continue; bc.beginPath(); bc.moveTo(0, y); bc.lineTo(W, y); bc.stroke(); bc.fillText(`${Math.abs(la)}°${la < 0 ? "S" : "N"}`, 4, y - 3); }
+  }
+  // static layer: header band, routes, ports
+  const font = getComputedStyle(document.body).fontFamily, F = s => `${s}px ${font}`, fs = H / 600;
+  bc.fillStyle = "#ffffff"; bc.fillRect(0, 0, W, HEAD);
+  bc.fillStyle = "#dbe1ea"; bc.fillRect(0, HEAD - 1, W, 1);
+  bc.fillStyle = "#1d2735"; bc.font = `600 ${F(Math.round(20 * fs))}`; bc.textBaseline = "middle";
+  bc.fillText("Novum fleet schedule", 14 * fs, HEAD / 2);
+  const tw = bc.measureText("Novum fleet schedule").width;
+  bc.fillStyle = "#5a6779"; bc.font = F(Math.round(13 * fs));
+  bc.fillText(`Projected from the position list of ${fD(REPORT)}`, 14 * fs + tw + 14 * fs, HEAD / 2);
+  const drawPath = (ctx, path, color, alpha, width, dash) => {
+    ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.lineJoin = "round"; ctx.beginPath();
+    path.forEach((p, i) => { const [x, y] = toPx(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.restore(); };
+  V.forEach(v => v.segs.filter(g => g.kind === "sea").forEach(g => drawPath(bc, g.path, v.color, 0.35, 1.6 * fs, g.est0 ? [5 * fs, 5 * fs] : null)));
+  const portsSeen = new Set();
+  V.forEach(v => v.stops.forEach(s => { if (portsSeen.has(s.port) || s.act === "Transit" || s.act === "AIS fix") return; portsSeen.add(s.port);
+    const [x, y] = toPx([s.lat, s.lon]); bc.fillStyle = "#5a6779"; bc.strokeStyle = "#fff"; bc.lineWidth = 1.5; bc.beginPath(); bc.arc(x, y, 3 * fs, 0, 7); bc.fill(); bc.stroke(); }));
+  // legend
+  const legendV = V.filter(v => v.stops.length);
+  const lh = 17 * fs, lw = 150 * fs, lx = 10 * fs, ly = H - 10 * fs - lh * Math.ceil(legendV.length / 2) - 10 * fs;
+  bc.fillStyle = "rgba(255,255,255,.92)"; bc.strokeStyle = "#dbe1ea"; bc.lineWidth = 1;
+  bc.beginPath(); bc.roundRect ? bc.roundRect(lx, ly, lw * 2 + 10 * fs, H - ly - 10 * fs, 5) : bc.rect(lx, ly, lw * 2 + 10 * fs, H - ly - 10 * fs); bc.fill(); bc.stroke();
+  bc.font = F(Math.round(11.5 * fs));
+  legendV.forEach((v, i) => { const cx = lx + 10 * fs + (i % 2) * lw, cy = ly + 13 * fs + Math.floor(i / 2) * lh;
+    bc.fillStyle = v.color; bc.beginPath(); bc.arc(cx + 4 * fs, cy, 4.5 * fs, 0, 7); bc.fill(); bc.fillStyle = "#1d2735"; bc.fillText(titleCase(v.name), cx + 14 * fs, cy); });
+  bc.fillStyle = "#5a6779"; bc.font = F(Math.round(10 * fs)); bc.textAlign = "right";
+  bc.fillText(tilesOk ? "Map tiles © Esri" : "", W - 8 * fs, H - 8 * fs); bc.textAlign = "left";
+
+  // 3. palette and frames
+  const fixed = ["#ffffff", "#1d2735", "#5a6779", "#dbe1ea", "#e9a400", ...V.map(v => v.color)].map(hexRgb);
+  const pal = buildPalette(bc.getImageData(0, 0, W, H), fixed), toIdx = makeIndexer(pal);
+  const enc = gifEncoder(W, H, pal);
+  const fc = document.createElement("canvas"); fc.width = W; fc.height = H; const ctx = fc.getContext("2d");
+  const lastT = Math.max(...V.flatMap(v => v.stops.map(s => T(s.dep || s.arr)).filter(Boolean)).map(d => d.getTime()));
+  const times = []; for (let t = REPORT.getTime(); t <= lastT + stepH * HOUR; t += stepH * HOUR) times.push(t);
+  let prev = null;
+  for (let f = 0; f < times.length; f++) {
+    const t = times[f];
+    ctx.drawImage(base, 0, 0);
+    // travelled part of each route, drawn solid
+    V.forEach(v => v.segs.filter(g => g.kind === "sea" && g.t0 && g.t1 && g.t0.getTime() < t).forEach(g => {
+      const fr = Math.min(1, (t - g.t0) / (g.t1 - g.t0)); const pts2 = [];
+      if (fr >= 1) pts2.push(...g.path); else { // cut path at fraction
+        const pos = along(g.path, fr); let acc = 0, tot = 0; const seg = [];
+        for (let i = 0; i < g.path.length - 1; i++) { const d = nmDist(g.path[i], g.path[i + 1]); seg.push(d); tot += d; }
+        pts2.push(g.path[0]); for (let i = 0; i < seg.length && (acc + seg[i]) / tot < fr; i++) { acc += seg[i]; pts2.push(g.path[i + 1]); } pts2.push(pos.ll); }
+      drawPath(ctx, pts2, v.color, 0.95, 2.4 * fs);
+    }));
+    // ships
+    ctx.font = `600 ${F(Math.round(11.5 * fs))}`; ctx.textBaseline = "middle";
+    V.forEach(v => {
+      const st = projected(v, t); if (!st || st.state === "region") return;
+      const [x, y] = toPx(st.ll); if (x < -20 || x > W + 20 || y < HEAD || y > H) return;
+      const r = 8 * fs;
+      ctx.fillStyle = st.state === "inbound" ? "#ffffff" : v.color; ctx.strokeStyle = st.state === "inbound" ? v.color : "#ffffff"; ctx.lineWidth = st.state === "inbound" ? 3 * fs : 2 * fs;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+      if (st.state === "sea") { ctx.save(); ctx.translate(x, y); ctx.rotate(st.hdg * Math.PI / 180); ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.62); ctx.lineTo(r * 0.45, r * 0.45); ctx.lineTo(0, r * 0.2); ctx.lineTo(-r * 0.45, r * 0.45); ctx.closePath(); ctx.fill(); ctx.restore(); }
+      else if (st.state === "port") { ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, r * 0.35, 0, 7); ctx.fill(); }
+      const label = titleCase(v.name);
+      ctx.lineWidth = 3.5 * fs; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.strokeText(label, x + r + 4 * fs, y); ctx.fillStyle = "#1d2735"; ctx.fillText(label, x + r + 4 * fs, y);
+    });
+    // date stamp
+    const d = new Date(t), stamp = `${p2(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+    ctx.font = `600 ${F(Math.round(19 * fs))}`; ctx.textAlign = "right"; ctx.fillStyle = "#ffffff"; ctx.fillRect(W - 170 * fs, 1, 170 * fs, HEAD - 2);
+    ctx.fillStyle = "#1d6fd8"; ctx.fillText(stamp, W - 14 * fs, HEAD / 2); ctx.textAlign = "left";
+    // progress bar on the header's bottom edge
+    ctx.fillStyle = "#1d6fd8"; ctx.fillRect(0, HEAD - 3, W * (f + 1) / times.length, 3);
+    // quantise, diff against previous frame, emit changed rectangle only
+    const px = ctx.getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
+    for (let i = 0, j = 0; j < idx.length; i += 4, j++) idx[j] = toIdx(px[i], px[i + 1], px[i + 2]);
+    const delay = f === times.length - 1 ? 300 : f === 0 ? 120 : (stepH >= 24 ? 35 : stepH >= 12 ? 20 : 12);
+    if (!prev) enc.frame(idx, 0, 0, W, H, delay, false);
+    else {
+      let minX = W, minY = H, maxX = -1, maxY = -1;
+      for (let yy = 0; yy < H; yy++) { const row = yy * W; for (let xx = 0; xx < W; xx++) if (idx[row + xx] !== prev[row + xx]) { if (xx < minX) minX = xx; if (xx > maxX) maxX = xx; if (yy < minY) minY = yy; if (yy > maxY) maxY = yy; } }
+      if (maxX < 0) { minX = minY = 0; maxX = maxY = 0; }
+      const w = maxX - minX + 1, h = maxY - minY + 1, sub = new Uint8Array(w * h);
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const a = (minY + yy) * W + minX + xx; sub[yy * w + xx] = idx[a] === prev[a] ? 255 : idx[a]; }
+      enc.frame(sub, minX, minY, w, h, delay, true);
+    }
+    prev = idx;
+    onProgress((f + 1) / times.length, `Drawing frame ${f + 1} of ${times.length}…`);
+    await new Promise(r => setTimeout(r, 0));
+  }
+  return { blob: new Blob([enc.finish()], { type: "image/gif" }), tilesOk, frames: times.length };
+}
+const gifDlg = document.getElementById("gifDlg");
+document.getElementById("gifBtn").onclick = () => { gifDlg.showModal ? gifDlg.showModal() : gifDlg.setAttribute("open", ""); };
+document.getElementById("gifX").onclick = () => gifDlg.close();
+document.getElementById("gifGo").onclick = async () => {
+  const [W, H] = document.getElementById("gifSize").value.split("x").map(Number), step = +document.getElementById("gifStep").value;
+  const go = document.getElementById("gifGo"), dl = document.getElementById("gifDl");
+  go.disabled = true; dl.hidden = true; document.getElementById("gifOut").hidden = true; document.getElementById("gifProg").hidden = false;
+  const bar = document.getElementById("gifBar"), msg = document.getElementById("gifMsg");
+  try {
+    const r = await makeGif(W, H, step, (f, m) => { bar.style.width = Math.round(f * 100) + "%"; msg.textContent = m; });
+    const url = URL.createObjectURL(r.blob);
+    document.getElementById("gifImg").src = url; document.getElementById("gifOut").hidden = false;
+    dl.href = url; dl.hidden = false;
+    msg.textContent = `Done: ${r.frames} frames, ${(r.blob.size / 1048576).toFixed(1)} MB.` + (r.tilesOk ? "" : " The map background could not be loaded, so the GIF uses a plain chart grid.");
+    window.__lastGif = r.blob;
+  } catch (e) { msg.textContent = "The GIF could not be made: " + e.message; }
+  go.disabled = false;
+};
+
+/* ------------------------------------------------------------ manual position dialog */
+let posFor = null;
+function openPosDlg(v) {
+  posFor = v; const d = document.getElementById("posDlg"), now = new Date();
+  document.getElementById("posTitle").textContent = `Update position: ${titleCase(v.name)}`;
+  const cur = (LS.get("fixes", {}))[v.name.toUpperCase()];
+  document.getElementById("posLL").value = cur ? `${cur.lat.toFixed(3)}, ${cur.lon.toFixed(3)}` : "";
+  const tt = cur ? new Date(cur.time) : now;
+  document.getElementById("posTime").value = `${tt.getFullYear()}-${p2(tt.getMonth() + 1)}-${p2(tt.getDate())}T${p2(tt.getHours())}:${p2(tt.getMinutes())}`;
+  document.getElementById("posSog").value = cur && cur.sog ? cur.sog : "";
+  document.getElementById("posErr").hidden = true;
+  d.showModal ? d.showModal() : d.setAttribute("open", "");
+}
+document.getElementById("posX").onclick = () => document.getElementById("posDlg").close();
+document.getElementById("posSave").onclick = () => {
+  const err = document.getElementById("posErr"), ll = parseLatLon(document.getElementById("posLL").value), tv = document.getElementById("posTime").value;
+  const t = tv ? new Date(tv) : null;
+  if (!ll) { err.textContent = "Enter the position as latitude and longitude, for example 38.86N 11.83W."; err.hidden = false; return; }
+  if (!t || isNaN(t)) { err.textContent = "Enter the date and time of the position."; err.hidden = false; return; }
+  if (t.getTime() > Date.now() + HOUR) { err.textContent = "The time is in the future. Enter when the ship was at this position."; err.hidden = false; return; }
+  const fx = LS.get("fixes", {}), sog = parseFloat(document.getElementById("posSog").value);
+  fx[posFor.name.toUpperCase()] = { lat: ll[0], lon: ll[1], time: t.toISOString(), sog: isNaN(sog) ? null : sog };
+  LS.set("fixes", fx); updateFixes(posFor);
+  const v = posFor; document.getElementById("posDlg").close();
+  refresh(true);
+};
+
+/* ------------------------------------------------------------ controls */
+const slider = document.getElementById("slider");
+const toSlider = t => Math.round((t - RANGE0) / (RANGE1 - RANGE0) * 1000);
+const fromSlider = x => RANGE0.getTime() + x / 1000 * (RANGE1 - RANGE0);
+function updateWhen() {
+  const t = new Date(tNow), isNow = Math.abs(tNow - Date.now()) < 6 * HOUR;
+  document.getElementById("whenTxt").textContent = fDT(t) + (isNow ? " · now" : "");
+}
+function refresh(refit) {
+  updateWhen();
+  drawRoutes(); drawShips(); drawWx(); renderCard(); renderKey(); renderSide();
+  if (!document.getElementById("v-sched").hidden) renderGantt();
+  if (!document.getElementById("v-wx").hidden && voyWxCache[wxSel]) voyWxCache[wxSel].then(d => { if (!document.getElementById("v-wx").hidden) drawVoyageChart(document.getElementById("wxChart"), V[wxSel], d); }).catch(() => {});
+  if (refit) fit();
+  document.getElementById("title").innerHTML = sel === null
+    ? `Novum fleet <span class="sub">• ${V.length} vessels • ${fD(REPORT)}</span>`
+    : `${esc(titleCase(V[sel].name))} <span class="sub">(${esc(yr(V[sel]))}) • ${esc(V[sel].segment || "")} • Novum</span>`;
+  document.querySelectorAll("#vtabs button").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.v === "" ? null : +b.dataset.v) === sel)));
+}
+function select(id) { sel = id; renderSide.vq = ""; refresh(true); if (id !== null && !document.getElementById("v-wx").hidden && wxSel !== id) { wxSel = id; renderWx(); } }
+function setView(name) {
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === name)));
+  const live = document.getElementById("v-live");
+  live.style.display = name === "live" ? "contents" : "none";
+  document.getElementById("v-sched").hidden = name !== "sched";
+  document.getElementById("v-part").hidden = name !== "part";
+  document.getElementById("v-wx").hidden = name !== "wx";
+  if (name === "wx") renderWx(); else placeMap(false);
+  if (name === "sched") renderGantt();
+  if (name === "part") renderPart();
+  if (name === "live" && map) setTimeout(() => map.invalidateSize(), 0);
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setView(b.dataset.view));
+document.getElementById("backBtn").onclick = () => select(null);
+
+// bottom vessel tabs
+document.getElementById("vtabs").innerHTML = `<button data-v="" aria-pressed="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zm0-18v6h8V3z"/></svg>All vessels</button>` +
+  V.map(v => `<button data-v="${v.id}" aria-pressed="false"><span class="sw" style="background:${v.color}"></span>${esc(titleCase(v.name))}</button>`).join("");
+document.querySelectorAll("#vtabs button").forEach(b => b.onclick = () => select(b.dataset.v === "" ? null : +b.dataset.v));
+
+slider.value = toSlider(tNow);
+slider.oninput = () => { tNow = fromSlider(+slider.value); refresh(false); };
+document.getElementById("nowBtn").onclick = () => { tNow = Math.min(Math.max(Date.now(), RANGE0.getTime()), RANGE1.getTime()); slider.value = toSlider(tNow); refresh(false); };
+let playing = null;
+document.getElementById("playBtn").onclick = () => {
+  const ico = document.getElementById("playIco");
+  if (playing) { clearInterval(playing); playing = null; ico.innerHTML = '<path d="M2 1l9 5-9 5z"/>'; return; }
+  if (+slider.value >= 1000) slider.value = 0;
+  ico.innerHTML = '<path d="M2 1h3v10H2zM7 1h3v10H7z"/>';
+  playing = setInterval(() => {
+    const x = Math.min(1000, +slider.value + 2); slider.value = x; tNow = fromSlider(x); refresh(false);
+    if (x >= 1000) document.getElementById("playBtn").click();
+  }, 60);
+};
+document.getElementById("reportPill").textContent = "Position list " + fD(REPORT);
+
+// setup dialog
+const dlg = document.getElementById("setup");
+document.getElementById("setupBtn").onclick = () => {
+  document.getElementById("apiKey").value = LS.get("apikey", "");
+  document.getElementById("idGrid").innerHTML = `<span class="h">Vessel</span><span class="h">MMSI</span><span class="h">IMO</span>` +
+    V.map(v => { const id = IDS[v.name.toUpperCase()] || {}, k = v.name.toUpperCase().replace(/\W/g, "");
+      return `<span class="nmcell">${esc(titleCase(v.name))}</span><input id="mmsi-${k}" inputmode="numeric" placeholder="9 digits" value="${esc(id.mmsi || "")}" aria-label="${esc(v.name)} MMSI">
+      <input id="imo-${k}" inputmode="numeric" placeholder="7 digits" value="${esc(id.imo || "")}" aria-label="${esc(v.name)} IMO">`; }).join("");
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+};
+document.getElementById("setupX").onclick = () => dlg.close();
+document.getElementById("aisSave").onclick = () => {
+  LS.set("apikey", document.getElementById("apiKey").value.trim());
+  V.forEach(v => { const k = v.name.toUpperCase().replace(/\W/g, "");
+    IDS[v.name.toUpperCase()] = { mmsi: document.getElementById("mmsi-" + k).value.replace(/\D/g, ""), imo: document.getElementById("imo-" + k).value.replace(/\D/g, "") }; });
+  LS.set("ids", IDS);
+  dlg.close(); connectAis(); refresh(false);
+};
+document.getElementById("aisStop").onclick = () => { wsState = "off"; if (ws) ws.close(); ws = null; setAis("off", "Live AIS off"); dlg.close(); };
+addEventListener("resize", () => { if (!document.getElementById("v-sched").hidden) renderGantt(); });
+
+updateFixes();
+initMap();
+renderWxBar();
+refresh(true);
+applyWxMode();
+connectAis();
+</script>
+</body>
+</html>
