@@ -1,0 +1,44 @@
+name: AIS positions
+
+# Every 10 minutes: listen to AISStream for the fleet's MMSIs and save the latest positions
+# to ais.json on the `ais-data` branch, which the web page reads.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ais
+  cancel-in-progress: false
+
+jobs:
+  ais:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install websockets==12.0
+      - name: Get the previous positions
+        run: |
+          mkdir -p out
+          git fetch --depth 1 origin ais-data 2>/dev/null && git show FETCH_HEAD:ais.json > out/ais.json || echo '{}' > out/ais.json
+      - name: Listen to AISStream
+        env:
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          LISTEN_SECONDS: "240"
+        run: python ais_relay.py out/ais.json
+      - name: Publish ais.json to the ais-data branch
+        run: |
+          cd out
+          git init -q -b ais-data
+          git config user.name "ais-relay"
+          git config user.email "ais-relay@users.noreply.github.com"
+          git add ais.json
+          git commit -q -m "AIS positions $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ais-data
