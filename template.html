@@ -524,6 +524,7 @@ function cargoOps(v) {
   return (v._ops = res);
 }
 function condition(v, t) {
+  const sr = sigNear(v, t, 30); if (sr && /laden/i.test(sr.state || "")) return "L"; if (sr && /ballast/i.test(sr.state || "")) return "B";
   if (!v.stops.length) return null;
   const ops = cargoOps(v); let last = null, lastI = -1;
   ops.forEach((o, i) => { const s = v.stops[i], tt = T(s.dep || s.arr); if (o && tt && tt.getTime() <= t) { last = o; lastI = i; } });
@@ -555,7 +556,32 @@ function alignLon(p, path) {   // pick lon, lon-360 or lon+360, whichever sits n
 }
 function segmentsWithFix(v, fix) {
   const base = v.segs, ft = fix.t, when = new Date(ft);
-  const stop = { act: "AIS fix", port: "FIX", name: `${fix.src === "AIS" ? "Last AIS" : "Reported"} position ${fDT(when)}`, lat: fix.lat, lon: fix.lon };
+  // A ship reported stopped stays at that position until about 6 h from now, then follows the schedule.
+  const stopped = fix.rec && /stopped/i.test(fix.rec.move || "");
+  if (stopped) {
+    const holdEnd = new Date(Math.max(ft, Date.now() + 6 * HOUR));
+    const hs = { act: "AIS fix", stopped: true, port: "FIX", name: `Signal AIS position ${fDT(when)}`, lat: fix.lat, lon: fix.lon, dest: fix.rec.dest };
+    for (let i = 0; i < base.length; i++) {
+      const g = base[i], a = g.t0 ? g.t0.getTime() : -Infinity, b = g.t1 ? g.t1.getTime() : Infinity;
+      if (ft < a || ft > b) continue;
+      if (g.kind === "port") {
+        const port = [g.stop.lat, g.stop.lon], p = alignLon([fix.lat, fix.lon], [port]), d = nmDist(p, port);
+        if (d < 10) return null;   // stopped at the scheduled port: the schedule already has it right
+        hs.lat = p[0]; hs.lon = p[1];
+        const arrive = new Date(holdEnd.getTime() + d / 10 * HOUR), leave = new Date(Math.max(g.t1 ? g.t1.getTime() : 0, arrive.getTime() + 12 * HOUR));
+        return [...base.slice(0, i), { kind: "port", stop: hs, t0: g.t0 || when, t1: holdEnd },
+          { kind: "sea", t0: holdEnd, t1: arrive, path: [p, port], from: hs.name, to: g.stop.name, nm: Math.round(d), est0: true, direct: true },
+          { ...g, t0: arrive, t1: g.t1 ? leave : null }, ...base.slice(i + 1)];
+      }
+      const p = alignLon([fix.lat, fix.lon], g.path), k = nearestOnPath(g.path, p); hs.lat = p[0]; hs.lon = p[1];
+      const end = Math.max(holdEnd.getTime() + HOUR, b);
+      return [...base.slice(0, i), ...(a < ft ? [{ ...g, t1: when, path: [...g.path.slice(0, k + 1), p], to: hs.name }] : []),
+        { kind: "port", stop: hs, t0: a < ft ? when : (g.t0 || when), t1: holdEnd },
+        { ...g, t0: holdEnd, t1: new Date(end), path: [p, ...g.path.slice(k + 1)], from: hs.name, est0: false }, ...base.slice(i + 1)];
+    }
+    return null;
+  }
+  const stop = { act: "AIS fix", port: "FIX", name: `${fix.src === "AIS" ? "Last AIS" : fix.src === "Signal" ? "Signal AIS" : "Reported"} position ${fDT(when)}`, lat: fix.lat, lon: fix.lon };
   for (let i = 0; i < base.length; i++) {
     const g = base[i];
     if (g.kind !== "sea" || !g.t0 || !g.t1 || ft < g.t0 || ft > g.t1) continue;
@@ -576,8 +602,21 @@ function segmentsWithFix(v, fix) {
   }
   return null;   // fix falls in a port stay or after the schedule: nothing to adjust
 }
+/* Signal export: daily average AIS positions. A day's average is taken as that day's noon (UTC), never later than now. */
+function sigTime(r) {
+  const [y, m, d] = r.day.split("-").map(Number);
+  let t = Date.UTC(y, m - 1, d, 12) - (r.days_since_ais || 0) * DAY;
+  return Math.min(t, Date.now() - 30 * 60000);
+}
+const sigLatest = v => (v.signal && v.signal.length) ? v.signal[v.signal.length - 1] : null;
+function sigNear(v, t, hours) {
+  let best = null, bd = Infinity;
+  (v.signal || []).forEach(r => { const d = Math.abs(sigTime(r) - t); if (d < bd) { bd = d; best = r; } });
+  return bd <= hours * HOUR ? best : null;
+}
 function currentFix(v) {
   const name = v.name.toUpperCase(), c = [];
+  const sl = sigLatest(v); if (sl) c.push({ lat: sl.lat, lon: sl.lon, time: new Date(sigTime(sl)).toISOString(), sog: sl.sog, src: "Signal", rec: sl });
   const man = (LS.get("fixes", {}))[name]; if (man) c.push({ ...man, src: "Manual" });
   const l = LIVE[name]; if (l && l.lat != null && l.time) c.push({ lat: l.lat, lon: l.lon, time: l.time, sog: l.sog, cog: l.cog, src: "AIS" });
   return c.map(f => ({ ...f, t: new Date(f.time).getTime() }))
@@ -611,12 +650,14 @@ function projected(v, t) {
   for (const g of segs) {
     const a = g.t0 ? g.t0.getTime() : -Infinity, b = g.t1 ? g.t1.getTime() : Infinity;
     if (t >= a && t <= b) {
+      if (g.kind === "port" && g.stop.act === "AIS fix" && g.stop.stopped)
+        return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `Stopped${g.stop.dest ? " near " + g.stop.dest : ""} (Signal AIS); sailing not yet reported`, seg: g };
       if (g.kind === "port" && g.stop.act === "AIS fix") { const nx = segs[segs.indexOf(g) + 1], hd = nx && nx.path ? along(nx.path, 0).hdg : null;
         return { state: "sea", ll: [g.stop.lat, g.stop.lon], hdg: hd, text: `At sea, reported AIS position (${fDT(g.t0)})`, seg: g }; }
       if (g.kind === "port") return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `${g.stop.act === "Transit" ? "Passing" : "At"} ${g.stop.name}`, seg: g };
       const f = (t - a) / (b - a), p = along(g.path, f);
       const fromFix = /position \d|^AIS position/.test(g.from);
-      return { state: "sea", ll: p.ll, hdg: p.hdg, text: fromFix ? `At sea, projected from ${g.from.replace(/^AIS position.*/, "AIS fix").replace(/^Last AIS/, "last AIS").replace(/^Reported/, "reported")} → ${g.to}` : `At sea, ${g.from} → ${g.to}`, seg: g, frac: f };
+      return { state: "sea", ll: p.ll, hdg: p.hdg, text: fromFix ? `At sea, projected from ${g.from.replace(/^AIS position.*/, "AIS fix").replace(/^Last AIS/, "last AIS").replace(/^Reported/, "reported").replace(/^Signal AIS position .*/, "Signal AIS position")} → ${g.to}` : `At sea, ${g.from} → ${g.to}`, seg: g, frac: f };
     }
   }
   const last = v.stops[v.stops.length - 1];
@@ -641,7 +682,7 @@ const NAV = ["Under way using engine","At anchor","Not under command","Restricte
 const AIS_SEEN = {};   // vessel name -> time of the last AIS message this session
 function aisNote(v) {
   const id = IDS[v.name.toUpperCase()] || {};
-  const fixTxt = v.fix && v.segsEff && !liveFor(v) ? `Projected from the ${v.fix.src === "AIS" ? "last AIS" : "reported"} position of ${fDT(new Date(v.fix.t))}. ` : "";
+  const fixTxt = v.fix && v.segsEff && !liveFor(v) ? `Projected from the ${v.fix.src === "AIS" ? "last AIS" : v.fix.src === "Signal" ? "Signal AIS" : "reported"} position of ${fDT(new Date(v.fix.t))}. ` : "";
   return fixTxt + aisNote0(v, id);
 }
 function aisNote0(v, id) {
@@ -780,6 +821,18 @@ function alerts() {
     }
     if (/held/i.test(v.status)) out.push({ sev: "crit", v, text: `<b>${esc(titleCase(v.name))}</b>: ${esc(v.remarks)}` });
   });
+  V.forEach(v => {   // where Signal AIS puts the ship vs where the schedule does at the same time
+    const r = sigLatest(v); if (!r || !v.stops.length) return;
+    const t = sigTime(r), keep = v.segsEff; v.segsEff = null; const pr = projected(v, t); v.segsEff = keep;
+    if (!pr || pr.state === "region") return;
+    const d = nmDist([r.lat, r.lon], [pr.ll[0], lon180(pr.ll[1])]);
+    if (/stopped/i.test(r.move || "") && pr.state === "sea" && d > 30)
+      out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> was still stopped near ${esc(r.dest || "port")} on ${fDd(new Date(t))} (Signal AIS), but the schedule had it at sea by then. Its ETAs may slip.` });
+    else if (d > 150)
+      out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> is about ${Math.round(d).toLocaleString()} nm from where the schedule puts it (Signal AIS, ${fDd(new Date(t))}).` });
+    if (r.eta && r.dest) { const nx = v.stops.find(s => s.arr && T(s.arr).getTime() > t && s.name.toLowerCase().startsWith(String(r.dest).toLowerCase().slice(0, 5)));
+      if (nx) { const diff = (new Date(r.eta) - T(nx.arr)) / HOUR; if (Math.abs(diff) >= 12) out.push({ sev: "info", v, text: `<b>${esc(titleCase(v.name))}</b>: AIS ETA ${esc(r.dest)} ${fDT(new Date(r.eta))} is ${Math.round(Math.abs(diff))} h ${diff > 0 ? "later" : "earlier"} than the position list.` }); } }
+  });
   (DATA.notes || []).forEach(n => out.push({ sev: "info", v: V.find(x => x.name === n.vessel), text: esc(n.text) }));
   const order = { crit: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.sev] - order[b.sev]);
@@ -865,6 +918,13 @@ function drawRoutes() {
   const list = sel === null ? V : [V[sel]];
   list.forEach(v => {
     const op = sel === null ? 0.55 : 0.95;
+    if (v.signal && v.signal.length > 1) {
+      const tr = v.signal.map(r => [r.lat, r.lon]);
+      L.polyline(tr, { color: v.color, weight: sel === null ? 1.5 : 2.5, opacity: sel === null ? 0.5 : 0.9, dashArray: "1 5", lineCap: "round" }).addTo(layers.routes)
+        .bindTooltip(`${esc(titleCase(v.name))}: actual track from Signal AIS, ${fDd(new Date(sigTime(v.signal[0])))} – ${fDd(new Date(sigTime(v.signal[v.signal.length - 1])))}`, { className: "ptip", sticky: true });
+      if (sel === v.id) v.signal.forEach(r => L.circleMarker([r.lat, r.lon], { radius: 3, color: "#fff", weight: 1, fillColor: v.color, fillOpacity: 1 }).addTo(layers.routes)
+        .bindTooltip(`<b>${r.day}</b> · Signal AIS daily average<br>${r.move}, ${r.state}${r.sog != null ? ` · ${(+r.sog).toFixed(1)} kn` : ""} ${r.heading ? "· " + esc(r.heading) : ""}<br>AIS destination ${esc(r.dest || "–")}${r.eta ? " · ETA " + fDT(new Date(r.eta)) : ""}`, { className: "ptip" }));
+    }
     const segsE = v.segsEff || v.segs;
     segsE.filter(g => g.kind === "port" && g.stop.act === "AIS fix").forEach(g => {
       L.circleMarker([g.stop.lat, g.stop.lon], { radius: 4, color: "#fff", weight: 1.5, fillColor: "#e9a400", fillOpacity: 1 }).addTo(layers.routes)
@@ -933,6 +993,8 @@ function shipPopupHtml(v) {
   if (inPort && calls[0] === inPort) { h += block(calls[0], "In port now"); if (calls[1]) h += block(calls[1], "Next port"); }
   else if (calls[0]) { h += block(calls[0], "Next port"); if (calls[1]) h += block(calls[1], "Then"); }
   else h += `<div class="port">Open ${esc(v.open_pos || "")} ${esc(v.open_date || "")}</div>`;
+  const sr = sigLatest(v);
+  if (sr) h += `<div class="sub" style="margin:6px 0 0">Signal AIS ${esc(sr.day)}: ${esc(sr.move)}${sr.sog ? ", " + (+sr.sog).toFixed(1) + " kn" : ""} · AIS destination ${esc(sr.dest || "–")}${sr.eta ? ", ETA " + fmt(new Date(sr.eta)) : ""}</div>`;
   if (st && st.pr && st.pr.state === "sea" && st.pr.seg && st.pr.seg.path && st.pr.frac != null && st.src !== "live") {
     const togo = pathNm(st.pr.seg.path) * (1 - st.pr.frac);
     h += `<div class="sub" style="margin:6px 0 0">${Math.round(togo).toLocaleString()} nm to go on this leg</div>`;
@@ -1252,8 +1314,8 @@ function renderVoyages(v) {
     stops.forEach(s => items.push({ code: actCode(s.act), name: s.name, act: s.act, tm: `${s.arr ? fDT(T(s.arr)) : "Alongside"}${s.dep && s.dep !== s.arr ? " | " + fDT(T(s.dep)) : ""}`,
       note: s.note, tbc: s.tbc, est: s.est_arr || s.est_dep, t: T(s.arr || s.dep), t1: T(s.dep) }));
     if (gi === 0 && v.fix && v.segsEff) {
-      items.push({ code: "A", name: v.fix.src === "AIS" ? "Last AIS position" : "Reported position", tm: fDT(new Date(v.fix.t)),
-        note: `${v.fix.lat.toFixed(2)}°, ${v.fix.lon.toFixed(2)}°${v.fix.sog ? " · " + v.fix.sog + " kn" : ""}${v.fix.src === "Manual" ? " · typed in" : " · ship now out of AIS range"}`, t: new Date(v.fix.t) });
+      items.push({ code: "A", name: v.fix.src === "AIS" ? "Last AIS position" : v.fix.src === "Signal" ? "Signal AIS position" : "Reported position", tm: fDT(new Date(v.fix.t)),
+        note: `${v.fix.lat.toFixed(2)}°, ${v.fix.lon.toFixed(2)}°${v.fix.sog != null ? " · " + (+v.fix.sog).toFixed(1) + " kn" : ""}${v.fix.src === "Manual" ? " · typed in" : v.fix.src === "Signal" ? ` · ${v.fix.rec.move}, ${v.fix.rec.state} · daily average` : " · ship now out of AIS range"}`, t: new Date(v.fix.t) });
       items.sort((a, b) => (a.t || 0) - (b.t || 0));
     }
     // insert the "now" row
@@ -1323,6 +1385,11 @@ function renderCard() {
     <section><h4>Weather at ship <span style="font-weight:400;color:var(--fg-3)" id="shipWxWhen"></span></h4><dl class="kv" id="shipWx"><dt>Loading…</dt><dd></dd></dl>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><button class="btn" id="cardWx" type="button" style="padding:4px 10px;font-size:12px">Show weather at ship</button>
       <a class="btn" style="padding:4px 10px;font-size:12px;text-decoration:none" target="_blank" rel="noopener" href="${windyLink(v)}">Windy.com ↗</a></div></section>
+    ${sigLatest(v) ? (() => { const r = sigLatest(v); return `<section><h4>Signal AIS <span style="font-weight:400;color:var(--fg-3)">· ${esc(r.day)} daily average</span></h4><dl class="kv">
+      <dt>Position</dt><dd>${r.lat.toFixed(2)}°, ${r.lon.toFixed(2)}°</dd><dt>Status</dt><dd>${esc(r.move || "–")}, ${esc(r.state || "–")}</dd>
+      <dt>Speed</dt><dd>${r.sog != null ? (+r.sog).toFixed(1) + " kn" : "–"}${r.heading ? " " + esc(r.heading) : ""}</dd>
+      <dt>AIS destination</dt><dd>${esc(r.dest || "–")}</dd><dt>AIS ETA</dt><dd>${r.eta ? fDT(new Date(r.eta)) : "–"}</dd>
+      <dt>Draught</dt><dd>${r.draught != null ? r.draught + " m" : "–"}</dd>${r.days_since_ais ? `<dt>Last AIS</dt><dd>${r.days_since_ais} day(s) before</dd>` : ""}</dl></section>`; })() : ""}
     <section><h4>Position report</h4><div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn" id="posBtn" type="button" style="padding:4px 10px;font-size:12px">Update position…</button>
       ${(LS.get("fixes", {}))[v.name.toUpperCase()] ? `<button class="btn" id="posClr" type="button" style="padding:4px 10px;font-size:12px">Clear typed position</button>` : ""}</div></section>

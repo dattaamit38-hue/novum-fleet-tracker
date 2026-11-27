@@ -24,7 +24,6 @@ SPEED_KN = 12.0  # assumed speed when a departure/arrival time is missing
 PORTS = {
     "Guayanilla":    ("Guayanilla, PR", 17.98, -66.77),
     "Rotterdam":     ("Rotterdam, NL", 51.95, 4.05),
-    "AsoposFix":     ("AIS position 25 Nov", 38.86, -11.83),
     "NYH":           ("New York Harbor", 40.66, -74.06),
     "Itacoatiara":   ("Itacoatiara, BR", -3.145, -58.43),
     "Manaus":        ("Manaus, BR", -3.14, -60.02),
@@ -90,14 +89,13 @@ def join(*parts):
     return out
 
 
-ROTT_FIX = [(51.95, 4.05), (51.98, 3.6), (51.6, 2.3), (51.0, 1.45), (50.3, -0.5), (49.9, -3.0), (49.2, -5.5),
-            (48.3, -6.5), (44.0, -10.0), (38.86, -11.83)]
-FIX_GUAY = [(38.86, -11.83), (31.0, -32.0), (23.0, -52.0), (19.2, -62.0), (18.25, -63.9), (17.98, -64.9),
-            (17.8, -66.0), (17.98, -66.77)]
+# Rotterdam -> Guayanilla, following Asopos's Signal AIS track across Biscay and the Atlantic
+ROTT_GUAY = [(51.95, 4.05), (51.98, 3.6), (51.6, 2.3), (51.0, 1.45), (50.3, -0.5), (49.9, -3.0), (49.2, -5.5),
+             (48.0, -7.9), (45.35, -13.1), (42.58, -17.42), (39.76, -21.93), (37.96, -24.55), (31.0, -35.0),
+             (23.0, -52.0), (19.2, -62.0), (18.25, -63.9), (17.98, -64.9), (17.8, -66.0), (17.98, -66.77)]
 
 ROUTES = {
-    ("Rotterdam", "AsoposFix"): ROTT_FIX,
-    ("AsoposFix", "Guayanilla"): FIX_GUAY,
+    ("Rotterdam", "Guayanilla"): ROTT_GUAY,
     ("Guayanilla", "NYH"): GUAY_NYH,
     ("NYH", "Guayanilla"): rev(GUAY_NYH),
     ("BarraNorte", "Itacoatiara"): rev(AMAZON_ITA),
@@ -124,11 +122,9 @@ REPORT_DATE = "2026-11-25"
 
 SCHEDULE = {
     "ASOPOS": dict(
-        # Last AIS fix and Rotterdam sailing taken from the voyage screen the user shared (25 Nov 2026 22:32).
+        # Rotterdam sailing from the voyage screen the user shared; positions come from the Signal export.
         status="At sea", origin="Rotterdam", origin_dep="2026-11-21T11:51",
         stops=[
-            dict(port="AsoposFix", arr="2026-11-25T22:32", dep="2026-11-25T22:32", act="AIS fix",
-                 voy="26DPP141", tbc=False, note="38.86°N 11.83°W · 11.6 kn · course 219° · reported ETA Guayanilla 05 Dec 16:00"),
             dict(port="Guayanilla", arr="2026-12-05T12:00", dep="2026-12-07T12:00", act="Discharge",
                  voy="26DPP141", tbc=True, note="ETA 05/1200LT; ETB 05 PM (TBC); open 7 Dec"),
             dict(port="NYH", arr="2026-12-12T18:00", dep=None, act="Load", voy="Next voyage",
@@ -284,6 +280,41 @@ def read_workbook():
     return report_date, vessels, sire, charter
 
 
+def read_signal_positions():
+    """Daily AIS positions exported from Signal (data/positions_*.xlsx; newest file wins).
+    Each row is one vessel-day: average lat/lon, speed, heading, loading state, AIS destination and ETA."""
+    files = sorted((HERE / "data").glob("positions_*.xlsx"))
+    if not files:
+        return None, {}
+    wb = openpyxl.load_workbook(files[-1], data_only=True)
+    ws = wb.worksheets[0]
+    rows = list(ws.iter_rows(values_only=True))
+    head = [str(h).strip() if h else "" for h in rows[0]]
+    col = {h: i for i, h in enumerate(head)}
+    need = ["DayDate", "VesselName", "AverageLatitude", "AverageLongitude"]
+    if any(n not in col for n in need):
+        print(f"  ! {files[-1].name}: expected columns {need}")
+        return files[-1].name, {}
+    out = {}
+    for r in rows[1:]:
+        if not r or not r[col["VesselName"]] or r[col["AverageLatitude"]] is None:
+            continue
+        g = lambda k: r[col[k]] if k in col else None
+        day = g("DayDate"); eta = g("EtaToDestination")
+        out.setdefault(norm(g("VesselName")), []).append(dict(
+            day=day.date().isoformat() if isinstance(day, dt.datetime) else str(day)[:10],
+            lat=round(float(g("AverageLatitude")), 4), lon=round(float(g("AverageLongitude")), 4),
+            sog=g("Speed"), heading=g("HeadingDirection"), state=g("LoadingState"), move=g("MovementState"),
+            dest=g("AisDestinationPortName"), dest_country=g("AisDestinationCountryName"),
+            eta=eta.strftime("%Y-%m-%dT%H:%M") if isinstance(eta, dt.datetime) else None,
+            draught=g("AverageDraught"), cargo=g("CargoType") or None, days_since_ais=g("DaysSinceLastAis"),
+            voyage=g("VoyageNumber")))
+    for k in out:
+        out[k].sort(key=lambda x: x["day"])
+    print(f"Signal positions: {files[-1].name}, {sum(len(v) for v in out.values())} vessel-days for {len(out)} vessels")
+    return files[-1].name, out
+
+
 def parse_charter_date(s):
     """'Nov 10 '26/ 1400LT; 1900Z' -> '2026-11-10'"""
     if not isinstance(s, str):
@@ -300,6 +331,7 @@ def parse_charter_date(s):
 # ----------------------------------------------------------------------------- build
 def build():
     report_date, vessels, sire, charter = read_workbook()
+    sig_file, sig = read_signal_positions()
     rd = report_date.date() if isinstance(report_date, dt.datetime) else dt.date.fromisoformat(REPORT_DATE)
     print(f"Report date {rd}; {len(vessels)} vessels in workbook")
     out = []
@@ -338,10 +370,11 @@ def build():
             status=sched["status"], stops=stops, legs=legs, origin=origin,
             region=dict(zip(("label", "lat", "lon", "km"), sched["region"])) if sched.get("region") else None,
             window=sched.get("window"),
+            signal=sig.get(v["key"], []),
             charter=dict(delivery=c.get("delivery"), earliest=parse_charter_date(c.get("earliest")),
                          latest=parse_charter_date(c.get("latest")),
                          earliest_raw=c.get("earliest"), latest_raw=c.get("latest")) if c else None))
-    data = dict(report_date=rd.isoformat(), speed_kn=SPEED_KN, source=XLSX.name, notes=NOTES,
+    data = dict(report_date=rd.isoformat(), speed_kn=SPEED_KN, source=XLSX.name, notes=NOTES, signal_file=sig_file,
                 generated=dt.datetime.now().strftime("%Y-%m-%d %H:%M"), vessels=out)
     html = (HERE / "template.html").read_text()
     html = html.replace("/*__DATA__*/null", json.dumps(data, separators=(",", ":"), default=str))
