@@ -182,11 +182,11 @@ SCHEDULE = {
         status="At berth (loading)", origin=None,
         stops=[
             dict(port="Nederland", arr="2026-11-26T11:00", dep="2026-11-28T11:00", act="Load", etb=None, alongside=True,
-                 voy="", tbc=False, note="At berth, loading; ETS earliest 28/1100LT"),
+                 voy="26DPP157", tbc=False, note="At berth, loading; ETS earliest 28/1100LT"),
             dict(port="StCharles", arr="2026-11-29T20:00", dep="2026-12-01T08:00", act="Port call",
-                 voy="", tbc=False, note="ETA 29/2000LT; ETS 01 AM"),
+                 voy="26DPP157", tbc=False, note="ETA 29/2000LT; ETS 01 AM"),
             dict(port="Palenque", arr="2026-12-06T12:00", dep="2026-12-08T16:00", act="Discharge",
-                 voy="", tbc=True, note="ETA 06 Dec noon (TBC); open 8 Dec PM"),
+                 voy="26DPP157", tbc=True, note="ETA 06 Dec noon (TBC); open 8 Dec PM"),
         ]),
     "HIGH CHALLENGE": dict(
         status="At sea", origin=None,
@@ -202,11 +202,11 @@ SCHEDULE = {
         status="At berth", origin=None,
         stops=[
             dict(port="StCroix", arr="2026-11-26T21:24", dep="2026-11-28T16:00", act="Port call", etb="2026-11-26T21:24", alongside=True,
-                 voy="", tbc=True, note="Berthed 26/2124LT; ETS 28 PM (TBC)"),
+                 voy="26DPP158", tbc=True, note="Berthed 26/2124LT; ETS 28 PM (TBC)"),
             dict(port="TTSTS", arr="2026-12-01T08:00", dep="2026-12-02T08:00", act="STS",
-                 voy="", tbc=False, note="ETA T&T offshore for STS 01 AM; ETS 02 AM"),
+                 voy="26DPP158", tbc=False, note="ETA T&T offshore for STS 01 AM; ETS 02 AM"),
             dict(port="Georgetown", arr="2026-12-03T16:00", dep="2026-12-05T12:00", act="Discharge",
-                 voy="", tbc=True, note="ETA Georgetown 03 PM; open 5 Dec (TBC)"),
+                 voy="26DPP158", tbc=True, note="ETA Georgetown 03 PM; open 5 Dec (TBC)"),
         ]),
     "MONARCA 1": dict(
         status="At anchorage", origin=None,
@@ -219,12 +219,12 @@ SCHEDULE = {
                  voy="", tbc=True, note="ETA Georgetown 05 AM (TBC); open 7 Dec (TBC)"),
         ]),
     "PRIMA N": dict(
-        status="Delivering", origin=None, region=("East Atlantic", 24.0, -28.0, 900),
-        window=dict(label="Delivery to Novum", start="2026-12-21T00:00", end="2026-12-23T23:59"),
+        status="Delivering", origin=None, region=("Off Western Sahara", 24.0, -16.8, 250),
+        window=dict(label="Delivery to Novum at St. Croix", start="2026-12-21T00:00", end="2026-12-25T23:59"),
         stops=[]),
     "ALMA MARINE": dict(
-        status="Held in port", origin=None, region=("West Africa", 4.0, 3.0, 600),
-        window=dict(label="Open St. Croix", start="2026-12-15T00:00", end="2026-12-30T23:59"),
+        status="Held in port", origin=None, region=("Conakry, Guinea", 9.51, -13.71, 40),
+        window=dict(label="Open St. Croix (end Dec)", start="2026-12-24T00:00", end="2026-12-31T23:59"),
         stops=[]),
 }
 
