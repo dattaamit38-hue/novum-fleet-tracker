@@ -685,7 +685,7 @@ async function pollRelay() {
       const n = V.filter(v => liveFor(v)).length, age = (Date.now() - new Date(j.updated)) / 60000;
       if (j.status === "no_key") setAis("err", "AIS feed: API key not added yet");
       else if (j.status !== "ok" && age < 60) setAis("err", "AIS feed problem: " + j.status);
-      else if (age > 90) setAis("err", `AIS feed last ran ${fDT(new Date(j.updated))}`);
+      else if (age > 150) setAis("err", `AIS feed last ran ${fDT(new Date(j.updated))}`);
       else setAis("live", `Live AIS · ${n} of ${V.length} ships · updated ${p2(new Date(j.updated).getHours())}:${p2(new Date(j.updated).getMinutes())}`);
     }
     refresh(false);
