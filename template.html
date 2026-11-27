@@ -554,13 +554,26 @@ function alignLon(p, path) {   // pick lon, lon-360 or lon+360, whichever sits n
   for (const lo of [p[1], p[1] - 360, p[1] + 360]) for (const q of path) { const d = Math.abs(q[1] - lo); if (d < best) { best = d; bestLon = lo; } }
   return [p[0], bestLon];
 }
+function normalizeSegs(segs) {   // keep segments in order: a later one never starts before the previous one ends
+  for (let i = 1; i < segs.length; i++) {
+    const prev = segs[i - 1], g = segs[i];
+    if (!prev.t1 || !g.t0 || g.t0 >= prev.t1) continue;
+    const shift = prev.t1 - g.t0;
+    segs[i] = { ...g, t0: new Date(prev.t1) };
+    if (g.t1) { const minDur = g.kind === "sea" && g.path ? pathNm(g.path) / 14 * HOUR : 0;
+      segs[i].t1 = new Date(Math.max(g.t1.getTime(), segs[i].t0.getTime() + (g.kind === "sea" ? minDur : (g.t1 - g.t0)))); }
+  }
+  return segs;
+}
 function segmentsWithFix(v, fix) {
   const base = v.segs, ft = fix.t, when = new Date(ft);
-  // A ship reported stopped stays at that position until about 6 h from now, then follows the schedule.
-  const stopped = fix.rec && /stopped/i.test(fix.rec.move || "");
-  if (stopped) {
-    const holdEnd = new Date(Math.max(ft, Date.now() + 6 * HOUR));
-    const hs = { act: "AIS fix", stopped: true, port: "FIX", name: `Signal AIS position ${fDT(when)}`, lat: fix.lat, lon: fix.lon, dest: fix.rec.dest };
+  // A ship reported stopped (AIS moored / at anchor / no way on, or Signal "Stopped") waits there.
+  // Departure delayed past the scheduled ETS: it sails at ETS + 12 h (or at the stopped report, if later)
+  // and heads for the next port's ETA from the position list. Waiting off a port it was due at: it berths
+  // 12 h after its ETA (or at the report, if later). Later calls shift only if they would overlap.
+  if (fix.stopped) {
+    const label = `${fix.src === "Signal" ? "Signal AIS" : fix.src === "AIS" ? "Last AIS" : "Reported"} position ${fDT(when)}`;
+    const hs = { act: "AIS fix", stopped: true, port: "FIX", name: label, lat: fix.lat, lon: fix.lon, dest: fix.rec && fix.rec.dest };
     for (let i = 0; i < base.length; i++) {
       const g = base[i], a = g.t0 ? g.t0.getTime() : -Infinity, b = g.t1 ? g.t1.getTime() : Infinity;
       if (ft < a || ft > b) continue;
@@ -568,16 +581,21 @@ function segmentsWithFix(v, fix) {
         const port = [g.stop.lat, g.stop.lon], p = alignLon([fix.lat, fix.lon], [port]), d = nmDist(p, port);
         if (d < 10) return null;   // stopped at the scheduled port: the schedule already has it right
         hs.lat = p[0]; hs.lon = p[1];
-        const arrive = new Date(holdEnd.getTime() + d / 10 * HOUR), leave = new Date(Math.max(g.t1 ? g.t1.getTime() : 0, arrive.getTime() + 12 * HOUR));
-        return [...base.slice(0, i), { kind: "port", stop: hs, t0: g.t0 || when, t1: holdEnd },
-          { kind: "sea", t0: holdEnd, t1: arrive, path: [p, port], from: hs.name, to: g.stop.name, nm: Math.round(d), est0: true, direct: true },
-          { ...g, t0: arrive, t1: g.t1 ? leave : null }, ...base.slice(i + 1)];
+        const hold = new Date(Math.max((g.t0 ? g.t0.getTime() : ft) + 12 * HOUR, ft));
+        const arrive = new Date(hold.getTime() + d / 10 * HOUR), leave = new Date(Math.max(g.t1 ? g.t1.getTime() : 0, arrive.getTime() + 12 * HOUR));
+        hs.delay = "berthing";
+        return normalizeSegs([...base.slice(0, i), { kind: "port", stop: hs, t0: g.t0 || when, t1: hold },
+          { kind: "sea", t0: hold, t1: arrive, path: [p, port], from: label, to: g.stop.name, nm: Math.round(d), est0: true, direct: true },
+          { ...g, t0: arrive, t1: g.t1 ? leave : null }, ...base.slice(i + 1)]);
       }
+      // the schedule has it at sea, but it is still stopped: departure is delayed
       const p = alignLon([fix.lat, fix.lon], g.path), k = nearestOnPath(g.path, p); hs.lat = p[0]; hs.lon = p[1];
-      const end = Math.max(holdEnd.getTime() + HOUR, b);
-      return [...base.slice(0, i), ...(a < ft ? [{ ...g, t1: when, path: [...g.path.slice(0, k + 1), p], to: hs.name }] : []),
-        { kind: "port", stop: hs, t0: a < ft ? when : (g.t0 || when), t1: holdEnd },
-        { ...g, t0: holdEnd, t1: new Date(end), path: [p, ...g.path.slice(k + 1)], from: hs.name, est0: false }, ...base.slice(i + 1)];
+      const dep = new Date(Math.max(a + 12 * HOUR, ft));
+      const rest = [p, ...g.path.slice(k + 1)], need = pathNm(rest) / 14 * HOUR;   // can it still make the ETA at up to 14 kn?
+      const eta = new Date(Math.max(b, dep.getTime() + need));
+      hs.delay = "sailing"; hs.newDep = dep; hs.etaSlip = eta.getTime() > b;
+      return normalizeSegs([...base.slice(0, i), { kind: "port", stop: hs, t0: g.t0 || when, t1: dep },
+        { ...g, t0: dep, t1: eta, path: rest, from: label, est0: false }, ...base.slice(i + 1)]);
     }
     return null;
   }
@@ -618,10 +636,15 @@ function currentFix(v) {
   const name = v.name.toUpperCase(), c = [];
   const sl = sigLatest(v); if (sl) c.push({ lat: sl.lat, lon: sl.lon, time: new Date(sigTime(sl)).toISOString(), sog: sl.sog, src: "Signal", rec: sl });
   const man = (LS.get("fixes", {}))[name]; if (man) c.push({ ...man, src: "Manual" });
-  const l = LIVE[name]; if (l && l.lat != null && l.time) c.push({ lat: l.lat, lon: l.lon, time: l.time, sog: l.sog, cog: l.cog, src: "AIS" });
-  return c.map(f => ({ ...f, t: new Date(f.time).getTime() }))
-    .filter(f => !isNaN(f.t) && Date.now() - f.t < 14 * DAY && f.t <= Date.now() + HOUR)
-    .sort((a, b) => b.t - a.t)[0] || null;
+  const l = LIVE[name]; if (l && l.lat != null && l.time) c.push({ lat: l.lat, lon: l.lon, time: l.time, sog: l.sog, cog: l.cog, nav: l.nav, src: "AIS" });
+  const ok = c.map(f => ({ ...f, t: new Date(f.time).getTime(),
+      stopped: f.src === "Signal" ? /stopped/i.test(f.rec.move || "") : f.src === "AIS" ? (/moored|anchor/i.test(f.nav || "") || (f.sog != null && f.sog < 1)) : (f.sog != null && f.sog < 1) }))
+    .filter(f => !isNaN(f.t) && Date.now() - f.t < 14 * DAY && f.t <= Date.now() + HOUR);
+  const newest = list => list.sort((a, b) => b.t - a.t)[0] || null;
+  // live AIS beats spreadsheet data (Signal export): used if under 24 h old or newer than the spreadsheet position
+  const ais = newest(ok.filter(f => f.src === "AIS")), sig = newest(ok.filter(f => f.src === "Signal")), typed = newest(ok.filter(f => f.src === "Manual"));
+  const auto = ais && (Date.now() - ais.t < DAY || !sig || ais.t >= sig.t) ? ais : (sig || ais);
+  return newest([auto, typed].filter(Boolean));
 }
 function updateFixes(only) {
   (only ? [only] : V).forEach(v => { const f = currentFix(v); v.fix = f; v.segsEff = f ? segmentsWithFix(v, f) : null;
@@ -651,7 +674,9 @@ function projected(v, t) {
     const a = g.t0 ? g.t0.getTime() : -Infinity, b = g.t1 ? g.t1.getTime() : Infinity;
     if (t >= a && t <= b) {
       if (g.kind === "port" && g.stop.act === "AIS fix" && g.stop.stopped)
-        return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `Stopped${g.stop.dest ? " near " + g.stop.dest : ""} (Signal AIS); sailing not yet reported`, seg: g };
+        return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, seg: g, text: g.stop.delay === "sailing"
+          ? `Departure delayed; stopped${g.stop.dest ? " at " + g.stop.dest : ""} per AIS. Assumed to sail ${fDT(g.stop.newDep)} (ETS + 12 h)${g.stop.etaSlip ? ", next ETA slips" : ", keeping next port ETA"}`
+          : `Waiting${g.stop.dest ? " off " + g.stop.dest : ""} per AIS; assumed to berth 12 h after ETA` };
       if (g.kind === "port" && g.stop.act === "AIS fix") { const nx = segs[segs.indexOf(g) + 1], hd = nx && nx.path ? along(nx.path, 0).hdg : null;
         return { state: "sea", ll: [g.stop.lat, g.stop.lon], hdg: hd, text: `At sea, reported AIS position (${fDT(g.t0)})`, seg: g }; }
       if (g.kind === "port") return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `${g.stop.act === "Transit" ? "Passing" : "At"} ${g.stop.name}`, seg: g };
@@ -827,7 +852,8 @@ function alerts() {
     if (!pr || pr.state === "region") return;
     const d = nmDist([r.lat, r.lon], [pr.ll[0], lon180(pr.ll[1])]);
     if (/stopped/i.test(r.move || "") && pr.state === "sea" && d > 30)
-      out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> was still stopped near ${esc(r.dest || "port")} on ${fDd(new Date(t))} (Signal AIS), but the schedule had it at sea by then. Its ETAs may slip.` });
+      { const hold = (v.segsEff || []).find(g => g.stop && g.stop.delay === "sailing");
+        out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> departure delayed: still stopped near ${esc(r.dest || "port")} on ${fDd(new Date(t))} (Signal AIS) after its scheduled ETS.${hold ? ` Now assumed to sail ${fDT(hold.stop.newDep)} (ETS + 12 h)${hold.stop.etaSlip ? "; next ETA slips." : " and keep its next ETA."}` : ""}` }); }
     else if (d > 150)
       out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> is about ${Math.round(d).toLocaleString()} nm from where the schedule puts it (Signal AIS, ${fDd(new Date(t))}).` });
     if (r.eta && r.dest) { const nx = v.stops.find(s => s.arr && T(s.arr).getTime() > t && s.name.toLowerCase().startsWith(String(r.dest).toLowerCase().slice(0, 5)));
