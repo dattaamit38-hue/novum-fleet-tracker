@@ -1925,14 +1925,16 @@ document.querySelectorAll("#vtabs button").forEach(b => b.onclick = () => select
 slider.value = toSlider(tNow);
 slider.oninput = () => { tNow = fromSlider(+slider.value); refresh(false); };
 document.getElementById("nowBtn").onclick = () => { tNow = Math.min(Math.max(Date.now(), RANGE0.getTime()), RANGE1.getTime()); slider.value = toSlider(tNow); refresh(false); };
-let playing = null;
+let playing = null, playPos = 0;
+const PLAY_STEP = 1.5;   // slider units per 60 ms frame: 0.75 x the original speed (was 2)
 document.getElementById("playBtn").onclick = () => {
   const ico = document.getElementById("playIco");
   if (playing) { clearInterval(playing); playing = null; ico.innerHTML = '<path d="M2 1l9 5-9 5z"/>'; return; }
   if (+slider.value >= 1000) slider.value = 0;
+  playPos = +slider.value;
   ico.innerHTML = '<path d="M2 1h3v10H2zM7 1h3v10H7z"/>';
   playing = setInterval(() => {
-    const x = Math.min(1000, +slider.value + 2); slider.value = x; tNow = fromSlider(x); refresh(false);
+    const x = Math.min(1000, playPos + PLAY_STEP); playPos = x; slider.value = x; tNow = fromSlider(x); refresh(false);
     if (x >= 1000) document.getElementById("playBtn").click();
   }, 60);
 };
