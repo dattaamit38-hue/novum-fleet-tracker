@@ -9,6 +9,6 @@ The position list workbook is not stored in this repository (`data/` is ignored)
 
 ## Live AIS feed
 
-`.github/workflows/ais.yml` runs `ais_relay.py` every 10 minutes. It listens to AISStream.io for the MMSIs in
+`.github/workflows/ais.yml` runs `ais_relay.py` every 30 minutes and listens for 25 minutes to AISStream.io for the MMSIs in
 `ais_ships.json` and saves the latest positions to `ais.json` on the `ais-data` branch, which the page reads.
 The AISStream key is stored as the repository secret `AISSTREAM_API_KEY` (Settings → Secrets and variables → Actions).

@@ -1,10 +1,10 @@
 name: AIS positions
 
-# Every 10 minutes: listen to AISStream for the fleet's MMSIs and save the latest positions
+# Every 30 minutes: listen to AISStream for 25 minutes for the fleet's MMSIs and save the latest positions
 # to ais.json on the `ais-data` branch, which the web page reads.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   ais:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,7 +31,7 @@ jobs:
       - name: Listen to AISStream
         env:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
-          LISTEN_SECONDS: "240"
+          LISTEN_SECONDS: "1500"
         run: python ais_relay.py out/ais.json
       - name: Publish ais.json to the ais-data branch
         run: |

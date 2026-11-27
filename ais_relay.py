@@ -1,6 +1,6 @@
 """Collect AIS positions for the fleet from AISStream.io and merge them into ais.json.
 
-Run by .github/workflows/ais.yml every 10 minutes. The web page reads ais.json from the
+Run by .github/workflows/ais.yml every 30 minutes (listening 25 minutes each time). The web page reads ais.json from the
 `ais-data` branch, so viewers need no API key and the key never reaches the browser.
 
 Usage: AISSTREAM_API_KEY=... python ais_relay.py path/to/ais.json
