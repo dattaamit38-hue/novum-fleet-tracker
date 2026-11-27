@@ -579,7 +579,7 @@ function segmentsWithFix(v, fix) {
       if (ft < a || ft > b) continue;
       if (g.kind === "port") {
         const port = [g.stop.lat, g.stop.lon], p = alignLon([fix.lat, fix.lon], [port]), d = nmDist(p, port);
-        if (d < 10) return null;   // stopped at the scheduled port: the schedule already has it right
+        if (d < 10 || g.stop.alongside) return null;   // at the scheduled port, or the position list says it is alongside
         hs.lat = p[0]; hs.lon = p[1];
         // waits off the port until the ETB (from the remarks), shifts to the berth, and sails at the ETS;
         // with ETB TBC it is assumed to berth 12 h after its ETA (or at the report, if later)
@@ -858,8 +858,13 @@ function alerts() {
     if (/stopped/i.test(r.move || "") && pr.state === "sea" && d > 30)
       { const hold = (v.segsEff || []).find(g => g.stop && g.stop.delay === "sailing");
         out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> departure delayed: still stopped near ${esc(r.dest || "port")} on ${fDd(new Date(t))} (Signal AIS) after its scheduled ETS.${hold ? ` Now assumed to sail ${fDT(hold.stop.newDep)} (ETS + 12 h)${hold.stop.etaSlip ? "; next ETA slips." : " and keep its next ETA."}` : ""}` }); }
-    else if (d > 150)
-      out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> is about ${Math.round(d).toLocaleString()} nm from where the schedule puts it (Signal AIS, ${fDd(new Date(t))}).` });
+    else {   // speed needed from the latest position to make the next ETA
+      const segs = v.segsEff || [], k = segs.findIndex(g => g.stop && g.stop.act === "AIS fix"), nx = k >= 0 ? segs.slice(k + 1).find(g => g.kind === "sea" && g.path) : null;
+      if (nx && nx.t1 && nx.t1 > nx.t0) {
+        const need = pathNm(nx.path) / ((nx.t1 - nx.t0) / HOUR);
+        if (need > 14) out.push({ sev: "warn", v, text: `<b>${esc(titleCase(v.name))}</b> needs about ${need.toFixed(1)} kn from its latest position (${fDd(new Date(t))}) to make ${esc(nx.to.split(",")[0])} by ${fDT(nx.t1)}. The ETA may slip.` });
+      }
+    }
     if (r.eta && r.dest) { const nx = v.stops.find(s => s.arr && T(s.arr).getTime() > t && s.name.toLowerCase().startsWith(String(r.dest).toLowerCase().slice(0, 5)));
       if (nx) { const diff = (new Date(r.eta) - T(nx.arr)) / HOUR; if (Math.abs(diff) >= 12) out.push({ sev: "info", v, text: `<b>${esc(titleCase(v.name))}</b>: AIS ETA ${esc(r.dest)} ${fDT(new Date(r.eta))} is ${Math.round(Math.abs(diff))} h ${diff > 0 ? "later" : "earlier"} than the position list.` }); } }
   });

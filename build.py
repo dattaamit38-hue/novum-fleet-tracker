@@ -37,7 +37,9 @@ PORTS = {
     "StCroix":       ("St. Croix, USVI", 17.69, -64.74),
     "Barcelona":     ("Barcelona, ES", 41.34, 2.16),
     "TTSTS":         ("T&T offshore (STS)", 10.55, -61.72),
-    "PortOfSpain":   ("Port of Spain, TT", 10.65, -61.52),
+    "PortOfSpain":   ("Port of Spain anchorage, TT", 10.65, -61.52),
+    "Macapa":        ("Macapá, BR", -0.05, -51.10),
+    "Valencia":      ("Valencia, ES", 39.44, -0.31),
     "Georgetown":    ("Georgetown, GY", 6.81, -58.16),
     "VreedEnHoop":   ("Vreed en Hoop, GY", 6.81, -58.19),
 }
@@ -94,7 +96,18 @@ ROTT_GUAY = [(51.95, 4.05), (51.98, 3.6), (51.6, 2.3), (51.0, 1.45), (50.3, -0.5
              (48.0, -7.9), (45.35, -13.1), (42.58, -17.42), (39.76, -21.93), (37.96, -24.55), (31.0, -35.0),
              (23.0, -52.0), (19.2, -62.0), (18.25, -63.9), (17.98, -64.9), (17.8, -66.0), (17.98, -66.77)]
 
+MACAPA_IN = [(1.55, -49.75), (1.0, -50.0), (0.5, -50.45), (-0.05, -51.1)]     # Barra Norte -> Macapá
+_ita_up = rev(AMAZON_ITA)                                                      # Barra Norte -> Itacoatiara
+MACAPA_ITA = _ita_up[_ita_up.index((-0.05, -51.1)):]
+STX_VLC = STX_BCN[:STX_BCN.index((36.6, -1.6)) + 1] + [(37.5, -0.3), (38.5, 0.4), (39.2, 0.0), (39.44, -0.31)]
+VLC_BCN = [(39.44, -0.31), (39.6, 0.3), (40.3, 1.2), (41.0, 1.9), (41.34, 2.16)]
+
 ROUTES = {
+    ("PortArthur", "Macapa"): join(GULF_PA, rev(CARIB_TO_YUC), rev(GATE), rev(GUIANA), MACAPA_IN),
+    ("Macapa", "Itacoatiara"): MACAPA_ITA,
+    ("StCroix", "Valencia"): STX_VLC,
+    ("Valencia", "Barcelona"): VLC_BCN,
+    ("PortOfSpain", "TTSTS"): [(10.65, -61.52), (10.6, -61.62), (10.55, -61.72)],
     ("Rotterdam", "Guayanilla"): ROTT_GUAY,
     ("Guayanilla", "NYH"): GUAY_NYH,
     ("NYH", "Guayanilla"): rev(GUAY_NYH),
@@ -119,87 +132,89 @@ ROUTES = {
 # AM=08:00, PM=16:00, LPM=18:00, EAM=04:00, Noon=12:00 when no hour is given.
 # etb = estimated time of berthing where the remarks give one (etb=None: ETB TBC).
 # "est": True marks a time not in the report (worked out at SPEED_KN or from the open date).
-REPORT_DATE = "2026-11-25"
+REPORT_DATE = "2026-11-27"
 
 SCHEDULE = {
+    # From the position list of 27 Nov 2026. alongside=True: the list says the ship is at berth now, so an
+    # older stopped-off-port AIS position does not hold it at the anchorage.
     "ASOPOS": dict(
         # Rotterdam sailing from the voyage screen the user shared; positions come from the Signal export.
         status="At sea", origin="Rotterdam", origin_dep="2026-11-21T11:51",
         stops=[
-            dict(port="Guayanilla", arr="2026-12-05T12:00", dep="2026-12-07T12:00", act="Discharge", etb="2026-12-05T16:00",
-                 voy="26DPP141", tbc=True, note="ETA 05/1200LT; ETB 05 PM (TBC); open 7 Dec"),
+            dict(port="Guayanilla", arr="2026-12-05T14:00", dep="2026-12-07T12:00", act="Discharge", etb="2026-12-05T18:00",
+                 voy="26DPP141", tbc=True, note="ETA 05/1400LT; ETB 05/1800 (TBC); open 7 Dec (TBC)"),
             dict(port="NYH", arr="2026-12-12T18:00", dep=None, act="Load", voy="Next voyage",
                  tbc=True, note="Jones Act waiver obtained; loading NYH 12/LPM (TBC)"),
             dict(port="Guayanilla", arr="2026-12-20T08:00", dep=None, act="Discharge", voy="Next voyage",
                  tbc=False, note="ETA Guayanilla 20 AM"),
         ]),
     "VALLE BIANCA": dict(
-        status="River transit", origin="BarraNorte",
+        status="At anchorage (loading)", origin=None,
         stops=[
-            dict(port="Itacoatiara", arr="2026-11-26T08:00", dep="2026-12-02T12:00", act="Load",
-                 voy="26DPP132", tbc=True, note="ETA 26 Nov AM (TBC); ETS 02 Dec"),
+            dict(port="Itacoatiara", arr="2026-11-26T21:00", dep="2026-12-02T12:00", act="Load", alongside=True,
+                 voy="26DPP132", tbc=False, note="At Ita anchorage loading (arrived about 26 Nov 21:00 per AIS); ETS 02 Dec"),
             dict(port="Guayanilla", arr="2026-12-10T12:00", dep="2026-12-12T12:00", act="Discharge",
                  voy="26DPP132", tbc=True, note="ETA 10 Dec (TBC); open 12 Dec (TBC)"),
         ]),
     "VALVERDE": dict(
-        status="At berth", origin=None,
-        stops=[
-            dict(port="Bayovar", arr=None, dep="2026-11-26T09:00", act="Load", voy="26DPP142",
-                 tbc=False, note="Loading at berth; ETC 26/0400; ETS 26/0900LT"),
-            dict(port="Dongying", arr="2026-12-27T12:00", dep="2026-12-29T12:00", act="Discharge",
-                 voy="26DPP142", tbc=True, note="ETA 27 Dec (TBC); open 29 Dec (TBC)"),
-        ]),
-    "XANTHOS": dict(
-        status="At sea", origin="PortArthur",
-        stops=[
-            dict(port="BarraNorte", arr="2026-11-30T14:00", dep="2026-11-30T14:00", act="Transit",
-                 voy="26DPP129", tbc=False, note="ETA Barra Norte 30/1400LT"),
-            dict(port="Itacoatiara", arr="2026-12-03T08:00", dep="2026-12-05T08:00", act="Discharge",
-                 voy="26DPP129", tbc=False, note="ETA Ita 03 AM; ETC Ita 05 AM"),
-            dict(port="Manaus", arr="2026-12-05T16:00", dep="2026-12-09T08:00", act="Discharge", etb="2026-12-05T16:00",
-                 voy="26DPP129", tbc=False, note="ETB 05 PM; ETC 08 AM; ETS 09 AM"),
-            dict(port="Itacoatiara", arr="2026-12-09T16:00", dep="2026-12-15T08:00", act="Load",
-                 voy="26DPP150", tbc=False, note="Wash and backload Bretana; ETA 09 PM; ETS 15 AM"),
-            dict(port="Guayanilla", arr="2026-12-23T08:00", dep=None, act="Discharge",
-                 voy="26DPP150", tbc=True, note="ETA Guayanilla (TBC) 23 AM"),
-        ]),
-    "VICTORY": dict(
         status="At sea", origin=None,
         stops=[
-            dict(port="Nederland", arr="2026-11-26T11:00", dep="2026-11-28T11:00", act="Port call", etb=None,
-                 voy="", tbc=False, note="ETA 26/1100LT; ETB TBC; ETS earliest 28/1100LT"),
-            dict(port="StCharles", arr="2026-11-29T18:00", dep="2026-12-01T08:00", act="Port call",
-                 voy="", tbc=False, note="ETA 29 LPM; ETS 01 AM"),
-            dict(port="Palenque", arr="2026-12-06T12:00", dep="2026-12-08T12:00", act="Discharge",
-                 voy="", tbc=True, note="ETA 06 Dec noon (TBC); open 8 Dec (TBC)"),
+            dict(port="Bayovar", arr=None, dep="2026-11-27T03:00", act="Load", voy="26DPP142",
+                 tbc=False, note="Sailed Bayovar 27/0300LT"),
+            dict(port="Dongying", arr="2026-12-27T07:00", dep="2026-12-29T12:00", act="Discharge",
+                 voy="26DPP142", tbc=True, note="ETA 27 Dec 0700LT; open 29 Dec (TBC)"),
+        ]),
+    "XANTHOS": dict(
+        status="At sea", origin="PortArthur", origin_dep="2026-11-19T18:00",   # sailing per the Signal AIS track
+        stops=[
+            dict(port="Macapa", arr="2026-12-02T15:00", dep="2026-12-02T15:00", act="Transit",
+                 voy="26DPP129", tbc=False, note="ETA Macapá 02/1500LT"),
+            dict(port="Itacoatiara", arr="2026-12-04T08:00", dep="2026-12-05T16:00", act="Discharge",
+                 voy="26DPP129", tbc=False, note="ETA Ita 04 AM; ETC Ita 05 PM; then shifting to Manaus"),
+            dict(port="Manaus", arr=None, dep="2026-12-09T16:00", act="Discharge", etb=None,
+                 voy="26DPP129", tbc=False, note="ETB Manaus 05 PM (list); ETC 08 PM; ETS 09 PM"),
+            dict(port="Itacoatiara", arr="2026-12-10T08:00", dep="2026-12-16T08:00", act="Load",
+                 voy="26DPP150", tbc=False, note="Wash and backload Bretana; ETA 10 AM; ETS 16 AM"),
+            dict(port="Guayanilla", arr="2026-12-23T08:00", dep="2026-12-25T12:00", act="Discharge",
+                 voy="26DPP150", tbc=True, note="ETA Guayanilla (TBC) 23 AM; open 25 Dec (TBC)"),
+        ]),
+    "VICTORY": dict(
+        status="At berth (loading)", origin=None,
+        stops=[
+            dict(port="Nederland", arr="2026-11-26T11:00", dep="2026-11-28T11:00", act="Load", etb=None, alongside=True,
+                 voy="", tbc=False, note="At berth, loading; ETS earliest 28/1100LT"),
+            dict(port="StCharles", arr="2026-11-29T20:00", dep="2026-12-01T08:00", act="Port call",
+                 voy="", tbc=False, note="ETA 29/2000LT; ETS 01 AM"),
+            dict(port="Palenque", arr="2026-12-06T12:00", dep="2026-12-08T16:00", act="Discharge",
+                 voy="", tbc=True, note="ETA 06 Dec noon (TBC); open 8 Dec PM"),
         ]),
     "HIGH CHALLENGE": dict(
         status="At sea", origin=None,
         stops=[
-            dict(port="StCroix", arr="2026-11-25T16:00", dep="2026-11-26T20:00", act="Port call", etb="2026-11-25T20:00",
-                 voy="26DPP151", tbc=True, note="Max speed; ETA 25/1600LT; ETB 25/2000LT; ETS 26/2000LT (TBC)"),
-            dict(port="Barcelona", arr="2026-12-09T12:00", dep="2026-12-11T12:00", act="Discharge",
-                 voy="26DPP151", tbc=True, note="ETA 09/1200LT (TBC); open 11 Dec (TBC)"),
+            dict(port="StCroix", arr="2026-11-25T16:00", dep="2026-11-26T14:00", act="Port call", etb="2026-11-25T20:00",
+                 voy="26DPP151", tbc=False, note="Departed St Croix 26/1400LT; max speed to Valencia"),
+            dict(port="Valencia", arr="2026-12-08T21:00", dep="2026-12-10T08:00", act="Discharge", etb=None,
+                 voy="26DPP151", tbc=True, note="Part discharge; ETA 08/2100LT; ETB 08 LPM (TBC); ETS 10 AM (TBC)"),
+            dict(port="Barcelona", arr="2026-12-10T18:00", dep="2026-12-12T08:00", act="Discharge",
+                 voy="26DPP151", tbc=True, note="ETA 10 LPM (TBC); open 12 Dec AM (TBC); next voyage: load Barcelona, discharge Skikda"),
         ]),
     "ATA VOYAGER": dict(
-        status="At sea", origin=None,
+        status="At berth", origin=None,
         stops=[
-            dict(port="StCroix", arr="2026-11-26T21:00", dep="2026-11-28T16:00", act="Port call", etb="2026-11-26T22:30",
-                 voy="", tbc=True, note="ETA 26/2100; ETB 26/2230LT; ETS 28 PM (TBC)"),
-            dict(port="TTSTS", arr="2026-12-01T04:00", dep="2026-12-02T08:00", act="STS",
-                 voy="", tbc=False, note="ETA T&T offshore for STS 01 EAM; ETS 02 AM"),
+            dict(port="StCroix", arr="2026-11-26T21:24", dep="2026-11-28T16:00", act="Port call", etb="2026-11-26T21:24", alongside=True,
+                 voy="", tbc=True, note="Berthed 26/2124LT; ETS 28 PM (TBC)"),
+            dict(port="TTSTS", arr="2026-12-01T08:00", dep="2026-12-02T08:00", act="STS",
+                 voy="", tbc=False, note="ETA T&T offshore for STS 01 AM; ETS 02 AM"),
             dict(port="Georgetown", arr="2026-12-03T16:00", dep="2026-12-05T12:00", act="Discharge",
                  voy="", tbc=True, note="ETA Georgetown 03 PM; open 5 Dec (TBC)"),
         ]),
     "MONARCA 1": dict(
-        status="At berth", origin=None,
+        status="At anchorage", origin=None,
         stops=[
-            dict(port="VreedEnHoop", arr=None, dep="2026-11-25T12:00", act="Discharge", voy="",
-                 tbc=False, note="Completed discharge at Georgetown; ETS 25/1200LT"),
-            dict(port="PortOfSpain", arr="2026-11-26T16:00", dep=None, act="Port call", voy="",
-                 tbc=False, note="ETA POS 26 PM"),
-            dict(port="TTSTS", arr="2026-12-01T04:00", dep="2026-12-03T16:00", act="STS", voy="",
-                 tbc=False, note="STS planned 01 EAM; ETS T&T 03 PM"),
+            dict(port="PortOfSpain", arr=None, dep=None, act="Port call", voy="",
+                 tbc=False, note="At Port of Spain anchorage"),
+            dict(port="TTSTS", arr="2026-12-01T08:00", dep="2026-12-03T16:00", act="STS", voy="",
+                 tbc=False, note="STS planned 01 AM; ETS T&T 03 PM"),
             dict(port="Georgetown", arr="2026-12-05T08:00", dep="2026-12-07T12:00", act="Discharge",
                  voy="", tbc=True, note="ETA Georgetown 05 AM (TBC); open 7 Dec (TBC)"),
         ]),
@@ -215,8 +230,8 @@ SCHEDULE = {
 
 # Things in the workbook that look inconsistent; shown under "Data notes" in the page.
 NOTES = [
-    dict(vessel="XANTHOS", text="Xanthos: open date is 22 Dec, but the remarks give ETA Guayanilla 23 Dec."),
-    dict(vessel="HIGH CHALLENGE", text="High Challenge: 'Balcelona' is read as Barcelona, Spain (13 days from St. Croix fits the ETA)."),
+    dict(vessel="XANTHOS", text="Xanthos: the list gives ETC Itacoatiara 05 PM and ETB Manaus 05 PM, which can't both hold (about 110 nm apart). The page keeps ETC Ita and works out the Manaus arrival."),
+    dict(vessel="HIGH CHALLENGE", text="High Challenge: ETB Valencia (08 LPM) is before its ETA (08/2100LT), so the ETB is treated as TBC. Open position 'Balcelona' is read as Barcelona, Spain."),
     dict(vessel="VICTORY", text="Victory: 'Palanque' is read as Palenque, Dominican Republic."),
     dict(vessel="PRIMA N", text="Prima N: no particulars (year, DWT, size) in the position list."),
     dict(vessel="MONARCA 1", text="Monarca 1 is in the position list but not on the charter sheet."),
@@ -282,9 +297,9 @@ def read_workbook():
 
 
 def read_signal_positions():
-    """Daily AIS positions exported from Signal (data/positions_*.xlsx; newest file wins).
+    """Daily AIS positions exported from Signal (data/signal_positions_*.xlsx; newest file wins).
     Each row is one vessel-day: average lat/lon, speed, heading, loading state, AIS destination and ETA."""
-    files = sorted((HERE / "data").glob("positions_*.xlsx"))
+    files = sorted((HERE / "data").glob("signal_positions_*.xlsx"))
     if not files:
         return None, {}
     wb = openpyxl.load_workbook(files[-1], data_only=True)
