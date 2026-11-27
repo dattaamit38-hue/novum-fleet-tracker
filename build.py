@@ -117,6 +117,7 @@ ROUTES = {
 # ----------------------------------------------------------------------------- schedule
 # Times are local time as written in the report (report date 25 Nov 2026).
 # AM=08:00, PM=16:00, LPM=18:00, EAM=04:00, Noon=12:00 when no hour is given.
+# etb = estimated time of berthing where the remarks give one (etb=None: ETB TBC).
 # "est": True marks a time not in the report (worked out at SPEED_KN or from the open date).
 REPORT_DATE = "2026-11-25"
 
@@ -125,7 +126,7 @@ SCHEDULE = {
         # Rotterdam sailing from the voyage screen the user shared; positions come from the Signal export.
         status="At sea", origin="Rotterdam", origin_dep="2026-11-21T11:51",
         stops=[
-            dict(port="Guayanilla", arr="2026-12-05T12:00", dep="2026-12-07T12:00", act="Discharge",
+            dict(port="Guayanilla", arr="2026-12-05T12:00", dep="2026-12-07T12:00", act="Discharge", etb="2026-12-05T16:00",
                  voy="26DPP141", tbc=True, note="ETA 05/1200LT; ETB 05 PM (TBC); open 7 Dec"),
             dict(port="NYH", arr="2026-12-12T18:00", dep=None, act="Load", voy="Next voyage",
                  tbc=True, note="Jones Act waiver obtained; loading NYH 12/LPM (TBC)"),
@@ -155,7 +156,7 @@ SCHEDULE = {
                  voy="26DPP129", tbc=False, note="ETA Barra Norte 30/1400LT"),
             dict(port="Itacoatiara", arr="2026-12-03T08:00", dep="2026-12-05T08:00", act="Discharge",
                  voy="26DPP129", tbc=False, note="ETA Ita 03 AM; ETC Ita 05 AM"),
-            dict(port="Manaus", arr="2026-12-05T16:00", dep="2026-12-09T08:00", act="Discharge",
+            dict(port="Manaus", arr="2026-12-05T16:00", dep="2026-12-09T08:00", act="Discharge", etb="2026-12-05T16:00",
                  voy="26DPP129", tbc=False, note="ETB 05 PM; ETC 08 AM; ETS 09 AM"),
             dict(port="Itacoatiara", arr="2026-12-09T16:00", dep="2026-12-15T08:00", act="Load",
                  voy="26DPP150", tbc=False, note="Wash and backload Bretana; ETA 09 PM; ETS 15 AM"),
@@ -165,7 +166,7 @@ SCHEDULE = {
     "VICTORY": dict(
         status="At sea", origin=None,
         stops=[
-            dict(port="Nederland", arr="2026-11-26T11:00", dep="2026-11-28T11:00", act="Port call",
+            dict(port="Nederland", arr="2026-11-26T11:00", dep="2026-11-28T11:00", act="Port call", etb=None,
                  voy="", tbc=False, note="ETA 26/1100LT; ETB TBC; ETS earliest 28/1100LT"),
             dict(port="StCharles", arr="2026-11-29T18:00", dep="2026-12-01T08:00", act="Port call",
                  voy="", tbc=False, note="ETA 29 LPM; ETS 01 AM"),
@@ -175,7 +176,7 @@ SCHEDULE = {
     "HIGH CHALLENGE": dict(
         status="At sea", origin=None,
         stops=[
-            dict(port="StCroix", arr="2026-11-25T16:00", dep="2026-11-26T20:00", act="Port call",
+            dict(port="StCroix", arr="2026-11-25T16:00", dep="2026-11-26T20:00", act="Port call", etb="2026-11-25T20:00",
                  voy="26DPP151", tbc=True, note="Max speed; ETA 25/1600LT; ETB 25/2000LT; ETS 26/2000LT (TBC)"),
             dict(port="Barcelona", arr="2026-12-09T12:00", dep="2026-12-11T12:00", act="Discharge",
                  voy="26DPP151", tbc=True, note="ETA 09/1200LT (TBC); open 11 Dec (TBC)"),
@@ -183,7 +184,7 @@ SCHEDULE = {
     "ATA VOYAGER": dict(
         status="At sea", origin=None,
         stops=[
-            dict(port="StCroix", arr="2026-11-26T21:00", dep="2026-11-28T16:00", act="Port call",
+            dict(port="StCroix", arr="2026-11-26T21:00", dep="2026-11-28T16:00", act="Port call", etb="2026-11-26T22:30",
                  voy="", tbc=True, note="ETA 26/2100; ETB 26/2230LT; ETS 28 PM (TBC)"),
             dict(port="TTSTS", arr="2026-12-01T04:00", dep="2026-12-02T08:00", act="STS",
                  voy="", tbc=False, note="ETA T&T offshore for STS 01 EAM; ETS 02 AM"),

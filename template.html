@@ -581,9 +581,13 @@ function segmentsWithFix(v, fix) {
         const port = [g.stop.lat, g.stop.lon], p = alignLon([fix.lat, fix.lon], [port]), d = nmDist(p, port);
         if (d < 10) return null;   // stopped at the scheduled port: the schedule already has it right
         hs.lat = p[0]; hs.lon = p[1];
-        const hold = new Date(Math.max((g.t0 ? g.t0.getTime() : ft) + 12 * HOUR, ft));
-        const arrive = new Date(hold.getTime() + d / 10 * HOUR), leave = new Date(Math.max(g.t1 ? g.t1.getTime() : 0, arrive.getTime() + 12 * HOUR));
-        hs.delay = "berthing";
+        // waits off the port until the ETB (from the remarks), shifts to the berth, and sails at the ETS;
+        // with ETB TBC it is assumed to berth 12 h after its ETA (or at the report, if later)
+        const travel = d / 10 * HOUR, etb = g.stop.etb ? T(g.stop.etb).getTime() : null;
+        const berth = etb ? Math.max(etb, ft + travel) : Math.max((g.t0 ? g.t0.getTime() : ft) + 12 * HOUR, ft) + travel;
+        const hold = new Date(berth - travel), arrive = new Date(berth);
+        const leave = new Date(Math.max(g.t1 ? g.t1.getTime() : 0, berth + 6 * HOUR));
+        hs.delay = "berthing"; hs.etb = etb ? new Date(etb) : null; hs.ets = g.t1; hs.berth = arrive;
         return normalizeSegs([...base.slice(0, i), { kind: "port", stop: hs, t0: g.t0 || when, t1: hold },
           { kind: "sea", t0: hold, t1: arrive, path: [p, port], from: label, to: g.stop.name, nm: Math.round(d), est0: true, direct: true },
           { ...g, t0: arrive, t1: g.t1 ? leave : null }, ...base.slice(i + 1)]);
@@ -676,7 +680,7 @@ function projected(v, t) {
       if (g.kind === "port" && g.stop.act === "AIS fix" && g.stop.stopped)
         return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, seg: g, text: g.stop.delay === "sailing"
           ? `Departure delayed; stopped${g.stop.dest ? " at " + g.stop.dest : ""} per AIS. Assumed to sail ${fDT(g.stop.newDep)} (ETS + 12 h)${g.stop.etaSlip ? ", next ETA slips" : ", keeping next port ETA"}`
-          : `Waiting${g.stop.dest ? " off " + g.stop.dest : ""} per AIS; assumed to berth 12 h after ETA` };
+          : `Waiting${g.stop.dest ? " off " + g.stop.dest : ""} per AIS. ${g.stop.etb ? `ETB ${fDT(g.stop.etb)}` : `ETB TBC, assumed ${fDT(g.stop.berth)} (ETA + 12 h)`}${g.stop.ets ? `, ETS ${fDT(g.stop.ets)}` : ""}` };
       if (g.kind === "port" && g.stop.act === "AIS fix") { const nx = segs[segs.indexOf(g) + 1], hd = nx && nx.path ? along(nx.path, 0).hdg : null;
         return { state: "sea", ll: [g.stop.lat, g.stop.lon], hdg: hd, text: `At sea, reported AIS position (${fDT(g.t0)})`, seg: g }; }
       if (g.kind === "port") return { state: "port", ll: [g.stop.lat, g.stop.lon], hdg: null, text: `${g.stop.act === "Transit" ? "Passing" : "At"} ${g.stop.name}`, seg: g };
@@ -1011,7 +1015,7 @@ function shipPopupHtml(v) {
     return `<div class="port"><div class="pn"><small>${label}</small></div>
       <div class="pn">${esc(s.name)} <span class="bd" style="background:${actColor(s.act)};color:#fff;font:600 9.5px/14px var(--sans);padding:0 4px;border-radius:2px">${esc(s.act)}</span>${s.tbc ? '<span class="tbc">TBC</span>' : ""}</div>
       <dl><dt>ETA</dt><dd>${arr ? fmt(arr) + (arrived ? " (arrived)" : "") : "Alongside"}</dd>
-      ${etb ? `<dt>ETB</dt><dd>${esc(etb[0].replace(/^ETB\s*-?\s*/i, ""))}</dd>` : ""}
+      ${s.etb ? `<dt>ETB</dt><dd>${fmt(T(s.etb))}</dd>` : "etb" in s ? `<dt>ETB</dt><dd>TBC</dd>` : etb ? `<dt>ETB</dt><dd>${esc(etb[0].replace(/^ETB\s*-?\s*/i, ""))}</dd>` : ""}
       <dt>ETS / ETD</dt><dd>${dep && s.dep !== s.arr ? fmt(dep) + (s.est_dep ? " (est.)" : "") : (calls[calls.length - 1] === s ? "Open " + esc(v.open_date || "") : "TBC")}</dd></dl></div>`;
   };
   let h = `<div class="sp"><h4>${esc(titleCase(v.name))} ${condBadge(c)}<span style="font-weight:400;color:var(--fg-2);font-size:12px">${c ? condName(c) : ""}</span></h4>
