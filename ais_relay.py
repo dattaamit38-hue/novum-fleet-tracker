@@ -74,6 +74,24 @@ async def listen(key, ships):
     return seen
 
 
+async def stream_check(key, seconds=15):
+    """Count all AIS messages near Houston / Sabine Pass for a few seconds: proves the key and feed work."""
+    n = 0
+    async with websockets.connect("wss://stream.aisstream.io/v0/stream", open_timeout=30) as ws:
+        await ws.send(json.dumps({"APIKey": key, "BoundingBoxes": [[[28.5, -95.6], [30.2, -93.4]]],
+                                  "FilterMessageTypes": ["PositionReport"]}))
+        end = time.time() + seconds
+        while (left := end - time.time()) > 0:
+            try:
+                m = json.loads(await asyncio.wait_for(ws.recv(), timeout=left))
+            except asyncio.TimeoutError:
+                break
+            if "error" in m:
+                raise SystemExit(f"AISStream error: {m['error']}")
+            n += 1
+    return n
+
+
 def main():
     key = os.environ.get("AISSTREAM_API_KEY", "").strip()
     try:
@@ -85,8 +103,13 @@ def main():
     if not key:
         print("AISSTREAM_API_KEY secret is not set; nothing to do.")
         status = "no_key"
-        seen = 0
+        seen = 0; check = None
     else:
+        try:
+            check = asyncio.run(stream_check(key))
+            print(f"Feed check: {check} messages from all ships near Houston/Sabine in 15 s")
+        except BaseException as e:
+            check = f"failed: {e!r}"; print(f"Feed check {check}")
         try:
             seen = asyncio.run(listen(key, ships))
             status = "ok"
@@ -97,7 +120,7 @@ def main():
     cutoff = (now - dt.timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     ships = {k: v for k, v in ships.items() if v.get("time", "") >= cutoff and v.get("lat") is not None}
     out = {"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "status": status, "positions_this_run": seen,
-           "listen_seconds": LISTEN, "ships": ships}
+           "listen_seconds": LISTEN, "feed_check_houston_15s": check, "ships": ships}
     OUT.write_text(json.dumps(out, indent=1))
     print(f"{status}: {seen} position reports this run; {len(ships)} ships on file")
 
