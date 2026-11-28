@@ -1,0 +1,51 @@
+{
+ "updated": "2026-11-28T15:10:31Z",
+ "status": "ok",
+ "positions_this_run": 3,
+ "listen_seconds": 1500,
+ "feed_check_houston_15s": 10,
+ "ships": {
+  "ASOPOS": {
+   "mmsi": "636012767",
+   "lat": 37.66891666666667,
+   "lon": -25.748314999999998,
+   "sog": 10.5,
+   "cog": 250,
+   "hdg": 253,
+   "nav": "Under way using engine",
+   "time": "2026-11-27T10:55:01Z",
+   "dest": "NLRTM>PRGUY",
+   "draught": 11.8,
+   "imo": 9309253,
+   "eta": "05 Dec 18:00 UTC"
+  },
+  "VICTORY": {
+   "mmsi": "636012629",
+   "lat": 30.0115,
+   "lon": -93.997,
+   "sog": 0,
+   "cog": 198,
+   "hdg": 109,
+   "nav": "Moored",
+   "time": "2026-11-28T13:36:48Z",
+   "dest": "USNDX",
+   "draught": 7.6,
+   "imo": 9301744,
+   "eta": "26 Nov 12:00 UTC"
+  },
+  "MONARCA 1": {
+   "mmsi": "668116517",
+   "lat": 10.644165,
+   "lon": -61.62557666666667,
+   "sog": 0,
+   "cog": 294.5,
+   "hdg": 59,
+   "nav": "At anchor",
+   "time": "2026-11-28T15:34:06Z",
+   "dest": "TT POS",
+   "draught": 0,
+   "imo": 946040900,
+   "eta": "27 Nov 11:00 UTC"
+  }
+ }
+}
